@@ -269,7 +269,7 @@ class WorldModel:
         self.llm = llm
         self.initialize_users(num_core_users, num_ordinary_users)
         self.actors = []
-        self.environment = Environment()
+        # self.environment = Environment() ## TODO: too complicated for now
         self.content_generator = ContentGenerator(llm)
 
     def add_actor(self, actor):
@@ -343,21 +343,26 @@ class WorldModel:
 
     def update_world_state(self):
         #TODO: the world state should be user-dependent, i.e., each user should have a different view of the world or could observe different/limited things
-        world_state = self.get_world_state() # let's start with previous messages (for the entire history of the world)
             
-
         for node in self.graph.nodes():
             user = self.graph.nodes[node]['user']
-            user.update(world_state) #TODO 1: retrieve their adjacent nodes tweets; #TODO 2: we can also employ twitter's information propagation algorithm #TODO 2: the passed information should be user-dependent + weighted randomness based on content popularity
-            action = user.take_action(world_state) #TODO: generate tweets using LLMs
-            self.process_action(node, action)
+            user_world_state = self.get_world_state(user) # let's start with previous messages (for the entire history of the world)
+            #TODO 1: retrieve their adjacent nodes tweets; #TODO 2: the passed information should be user-dependent + weighted randomness based on content popularity
+            action = user.take_action(user_world_state) #TODO: generate tweets using LLMs
+
 
             # if user is an actor
-            if self.graph.nodes[node]['user'] in self.actors:
-                self.environment.update_environment(action) # the actors/organizations can influence the world state
-                user.update_accounts(self.environment, self.content_generator)
+            #TODO: we can retrieve the actor from the account; while each account can have its own agenda (e.g., personal accounts can be more personal/explicit/foreward, official accounts can be more professional, etc.)
+            # self.environment.update_environment(action) # the actors/organizations can influence the world state ## TODO: this is too complicated for now
+            if self.graph.nodes[node]['other_accounts'] is not None:
+                for account in self.graph.nodes[node]['other_accounts']:
+                    user = self.graph.nodes[account]['user']
+                    user_world_state = self.get_world_state(user)
+                    action = user.take_action(user_world_state)
 
-        self.propagate_information()
+            self.process_action(node, action)
+
+        self.propagate_information() #TODO: we can also employ twitter's information propagation algorithm 
         self.current_time += timedelta(minutes=15)
 
     def process_action(self, node, action):
