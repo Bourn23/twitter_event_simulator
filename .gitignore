@@ -1,0 +1,7 @@
+*.csv
+*.zip
+# Ignore node_modules directory
+node_modules/
+!node_modules/package.json
+# Ignore all JSON files
+*.json
