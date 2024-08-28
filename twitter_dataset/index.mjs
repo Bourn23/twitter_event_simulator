@@ -22,7 +22,7 @@ function randomWaitTime(min, max) {
 }
 
 // Function to fetch tweet data with exponential backoff and random jitter
-async function fetchTweetDataWithRetry(tweetId, retries = 3, backoffFactor = 300, jitterMin = 100, jitterMax = 500) {
+async function fetchTweetDataWithRetry(tweetId, retries = 5, backoffFactor = 800, jitterMin = 5000, jitterMax = 10000) {
   const token = getToken(tweetId);
   const url = `https://cdn.syndication.twimg.com/tweet-result?id=${tweetId}&token=${token}`;
 
@@ -95,7 +95,7 @@ async function processAllTweets(tweetIds, batchSize, concurrencyLimit) {
     totalFetched += batchResults.length;
 
     // Save to file every 1000 fetches
-    if (totalFetched >= 1000) {
+    if (totalFetched >= 10) {
       await saveResultsToFile(allResults, chunkIndex);
       chunkIndex++;
       allResults = []; // Reset the results array after saving
@@ -130,8 +130,8 @@ async function loadTweetIdsFromFile(filePath) {
 
 // Example usage
 const filePath = 'first_1000_tweets.txt'; // Replace with the path to your tweet ID file
-const batchSize = 100; // Number of requests to handle per batch
-const concurrencyLimit = 10; // Number of concurrent requests
+const batchSize = 10; // Number of requests to handle per batch
+const concurrencyLimit = 20; // Number of concurrent requests
 
 (async () => {
   const startTime = performance.now();

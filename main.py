@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import random
 from abc import ABC, abstractmethod
 import heapq
+import json
 
 from datetime import datetime, timedelta
 
@@ -261,16 +262,25 @@ class CoreUser(User):
 #TODO: a user may form or lose connections over time, and the network structure may evolve
 #TODO: weight of the network (edges between nodes) should show the strength of the connection/influence
 class WorldModel:
-    def __init__(self, start_date, end_date, num_core_users, num_ordinary_users, llm):
+    def __init__(self, dataset_path, start_date, end_date, llm):
+        # self.start_date = start_date
+        # self.end_date = end_date
+        # self.current_time = start_date
+        # self.graph = nx.Graph()
+        # self.llm = llm
+        # self.initialize_users(num_core_users, num_ordinary_users)
+        # self.actors = []
+        # # self.environment = Environment() ## TODO: too complicated for now
+        # self.content_generator = ContentGenerator(llm)
         self.start_date = start_date
         self.end_date = end_date
         self.current_time = start_date
         self.graph = nx.Graph()
         self.llm = llm
-        self.initialize_users(num_core_users, num_ordinary_users)
         self.actors = []
-        # self.environment = Environment() ## TODO: too complicated for now
-        self.content_generator = ContentGenerator(llm)
+        self.dataset_path = dataset_path
+        self.load_dataset_and_initialize_graph()
+
 
     def add_actor(self, actor):
         self.actors.append(actor)
@@ -387,6 +397,57 @@ class WorldModel:
             'graph': self.graph,
             # Other relevant state information
         }
+    
+    def load_dataset_and_initialize_graph(self):
+        """
+        Load the dataset from the provided path and create the graph based on the dataset.
+        """
+        with open(self.dataset_path, 'r') as file:
+            data = json.load(file)
+
+        for user_id, user_data in data.items():
+            user = self.create_user(user_id, user_data)
+            self.graph.add_node(user_id, user=user)
+            self.add_twitter_account_to_graph(user_data)
+
+        self.add_edges_from_social_network(data)
+
+    def create_user(self, user_id, user_data):
+        """
+        Create a user object based on the provided user_data.
+        """
+        # You can customize user creation based on the type of user you need
+        # For example, distinguish between CoreUser and OrdinaryUser if needed
+        if self.is_core_user(user_data):
+            return CoreUser(user_id, self.llm)
+        else:
+            return OrdinaryUser(user_id)
+
+    def is_core_user(self, user_data):
+        """
+        Determine if the user is a core user based on some criteria.
+        """
+        # Implement the logic to determine if a user is a core user
+        return user_data.get('retweets', 0) > 500  # Example criteria
+
+    def add_twitter_account_to_graph(self, user_data):
+        """
+        Add the user's Twitter account to the graph.
+        """
+        user_id = user_data['user_info']['id']
+        self.graph.add_node(user_id, account=user_data['user_info']['screen_name'])
+        # Add edges based on followers, mentions, etc.
+        for follower_id in user_data.get('followers', []):
+            self.graph.add_edge(user_id, follower_id)
+
+    def add_edges_from_social_network(self, data):
+        """
+        Add edges to the graph based on social network interactions from the dataset.
+        """
+        for user_id, user_data in data.items():
+            interactions = user_data.get('interactions', [])
+            for interacted_user_id in interactions:
+                self.graph.add_edge(user_id, interacted_user_id)
 
 #TODO: feed scenario to the world model; how does the world model gets affected by the scenario?
 # is it the user generation? or the network structure ? or the user's memory?

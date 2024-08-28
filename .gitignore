@@ -5,3 +5,6 @@ node_modules/
 !node_modules/package.json
 # Ignore all JSON files
 *.json
+*.txt
+*.rtf
+*.html
