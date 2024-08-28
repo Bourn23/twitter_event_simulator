@@ -1,53 +1,68 @@
-## V2 Adjusted probabilities ##
-# probabilities are adopted from the following paper (with some modification to match the number of required tweets): doi:10.1371/journal.pone.0165387
-# TODO: obtain correct probabilities for url_ retweet_ and reply_ probabilities. how?
+# ## V2 Adjusted probabilities ##
+# # probabilities are adopted from the following paper (with some modification to match the number of required tweets): doi:10.1371/journal.pone.0165387
 import numpy as np
 from datetime import datetime, timedelta
 import random
 import matplotlib.pyplot as plt
 
+## Calculations for user probabilities:
+"""
+For the Brazilian protest (May 1 to Aug 1, 2013):
+Total days: 92 days
+
+For Individuals:
+Mean Tweets: 182.611
+Mean Prop. of Tweets with URL: 0.522
+Mean Prop. Retweet: 0.1
+Mean Prop. Replies: 0.341
+Daily averages:
+Tweets per day: 182.611 / 92 = 1.985 tweets/day
+Tweets with URL per day: 1.985 * 0.522 = 1.036 tweets with URL/day
+Retweets per day: 1.985 * 0.1 = 0.199 retweets/day
+Replies per day: 1.985 * 0.341 = 0.677 replies/day
+For Organizations:
+Mean Tweets: 372.87
+Mean Prop. of Tweets with URL: 0.376
+Mean Prop. Retweet: 0.06
+Mean Prop. Replies: 0.505
+Daily averages:
+Tweets per day: 372.87 / 92 = 4.053 tweets/day
+Tweets with URL per day: 4.053 * 0.376 = 1.524 tweets with URL/day
+Retweets per day: 4.053 * 0.06 = 0.243 retweets/day
+Replies per day: 4.053 * 0.505 = 2.047 replies/day
+"""
 class User:
     def __init__(self, user_type):
         self.user_type = user_type
-        if user_type == 'core':
-            self.base_prob = 0.8 # was 95
-            self.url_prob = 0.637
-            self.retweet_prob = 0.078
-            self.reply_prob = 0.511
-            self.max_daily_tweets = 20
-        elif user_type == 'org':
-            self.base_prob = 0.9 # was 98
-            self.url_prob = 0.376
-            self.retweet_prob = 0.06
-            self.reply_prob = 0.505
-            self.max_daily_tweets = 25
-        else:  # basic user
-            self.base_prob = 0.2 # was 0.6
+        #TODO; the original paper only distinguishes between individuals and organizations. so we are still estimating the core user statistics based on basic user. need to adjust these numbers.
+        if user_type == 'core': 
+            self.tweets_per_day = 3  # Slightly higher than average individual
             self.url_prob = 0.522
             self.retweet_prob = 0.1
             self.reply_prob = 0.341
-            self.max_daily_tweets = 10
+        elif user_type == 'org':
+            self.tweets_per_day = 4.053
+            self.url_prob = 0.376
+            self.retweet_prob = 0.06
+            self.reply_prob = 0.505
+        else:  # basic user
+            self.tweets_per_day = 1.985
+            self.url_prob = 0.522
+            self.retweet_prob = 0.1
+            self.reply_prob = 0.341
 
-def tweet_probability(date, peak_prob, user):
-    protest_date = datetime(2040, 6, 1)
-    days_diff = (date - protest_date).days
-    
-    protest_effect = peak_prob * np.exp(-0.5 * (days_diff / 0.5)**2)
-    
-    total_prob = min(user.base_prob + protest_effect, 1.0)
-    return total_prob
-
-def simulate_tweets(users, peak_prob):
+def simulate_tweets(users, peak_factor, num_days):
     start_date = datetime(2040, 5, 30)
-    end_date = datetime(2040, 6, 3)
-    date_range = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
+    date_range = [start_date + timedelta(days=i) for i in range(num_days)]
     
     results = {date.date(): {'total': 0, 'with_url': 0, 'retweets': 0, 'replies': 0} for date in date_range}
     
     for date in date_range:
+        days_to_protest = abs((date - datetime(2040, 6, 1)).days)
+        day_factor = peak_factor * (1 / (1 + days_to_protest))  # Higher activity closer to protest day
+        
         for user in users:
-            daily_prob = tweet_probability(date, peak_prob, user)
-            daily_tweets = np.random.binomial(user.max_daily_tweets, daily_prob)
+            daily_tweets = np.random.poisson(user.tweets_per_day * (1 + day_factor))
             results[date.date()]['total'] += daily_tweets
             
             for _ in range(daily_tweets):
@@ -61,17 +76,16 @@ def simulate_tweets(users, peak_prob):
     return results
 
 # Create users
-# TODO: percentage of users are estimated. we can adjust this later based on other works.
-# this ratio can be inferred from Figure 2c in the paper.
-users = ([User('core') for _ in range(30)] + # was 50
-         [User('org') for _ in range(25)] + # was 25
-         [User('basic') for _ in range(445)]) # was 425
+users = ([User('core') for _ in range(50)] +
+         [User('org') for _ in range(25)] +
+         [User('basic') for _ in range(425)])
 
 # Simulation parameters
-peak_prob = 0.254  # Based on Brazillian protests
+peak_factor = 2  # Increase activity on protest day
+num_days = 5  # Simulate for 5 days
 
 # Run simulation
-results = simulate_tweets(users, peak_prob)
+results = simulate_tweets(users, peak_factor, num_days)
 
 # Print results
 total_tweets = sum(counts['total'] for counts in results.values())
