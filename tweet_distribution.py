@@ -1,4 +1,6 @@
 ## V2 Adjusted probabilities ##
+# probabilities are adopted from the following paper (with some modification to match the number of required tweets): doi:10.1371/journal.pone.0165387
+# TODO: obtain correct probabilities for url_ retweet_ and reply_ probabilities. how?
 import numpy as np
 from datetime import datetime, timedelta
 import random
@@ -8,26 +10,26 @@ class User:
     def __init__(self, user_type):
         self.user_type = user_type
         if user_type == 'core':
-            self.base_prob = 0.95
+            self.base_prob = 0.8 # was 95
             self.url_prob = 0.637
             self.retweet_prob = 0.078
             self.reply_prob = 0.511
             self.max_daily_tweets = 20
         elif user_type == 'org':
-            self.base_prob = 0.98
+            self.base_prob = 0.9 # was 98
             self.url_prob = 0.376
             self.retweet_prob = 0.06
             self.reply_prob = 0.505
             self.max_daily_tweets = 25
         else:  # basic user
-            self.base_prob = 0.6
+            self.base_prob = 0.2 # was 0.6
             self.url_prob = 0.522
             self.retweet_prob = 0.1
             self.reply_prob = 0.341
             self.max_daily_tweets = 10
 
 def tweet_probability(date, peak_prob, user):
-    protest_date = datetime(2024, 6, 1)
+    protest_date = datetime(2040, 6, 1)
     days_diff = (date - protest_date).days
     
     protest_effect = peak_prob * np.exp(-0.5 * (days_diff / 0.5)**2)
@@ -36,8 +38,8 @@ def tweet_probability(date, peak_prob, user):
     return total_prob
 
 def simulate_tweets(users, peak_prob):
-    start_date = datetime(2024, 5, 30)
-    end_date = datetime(2024, 6, 3)
+    start_date = datetime(2040, 5, 30)
+    end_date = datetime(2040, 6, 3)
     date_range = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
     
     results = {date.date(): {'total': 0, 'with_url': 0, 'retweets': 0, 'replies': 0} for date in date_range}
@@ -59,12 +61,14 @@ def simulate_tweets(users, peak_prob):
     return results
 
 # Create users
-users = ([User('core') for _ in range(50)] +
-         [User('org') for _ in range(25)] +
-         [User('basic') for _ in range(425)])
+# TODO: percentage of users are estimated. we can adjust this later based on other works.
+# this ratio can be inferred from Figure 2c in the paper.
+users = ([User('core') for _ in range(30)] + # was 50
+         [User('org') for _ in range(25)] + # was 25
+         [User('basic') for _ in range(445)]) # was 425
 
 # Simulation parameters
-peak_prob = 0.6  # Increased peak probability
+peak_prob = 0.254  # Based on Brazillian protests
 
 # Run simulation
 results = simulate_tweets(users, peak_prob)
