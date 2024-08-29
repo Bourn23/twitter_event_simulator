@@ -263,15 +263,6 @@ class CoreUser(User):
 #TODO: weight of the network (edges between nodes) should show the strength of the connection/influence
 class WorldModel:
     def __init__(self, dataset_path, start_date, end_date, llm):
-        # self.start_date = start_date
-        # self.end_date = end_date
-        # self.current_time = start_date
-        # self.graph = nx.Graph()
-        # self.llm = llm
-        # self.initialize_users(num_core_users, num_ordinary_users)
-        # self.actors = []
-        # # self.environment = Environment() ## TODO: too complicated for now
-        # self.content_generator = ContentGenerator(llm)
         self.start_date = start_date
         self.end_date = end_date
         self.current_time = start_date
@@ -325,13 +316,6 @@ class WorldModel:
 
         # Add edges based on social network data
         self.add_edges_from_social_network(all_users)
-
-    def generate_all_users(self, num_users): #TODO:AMIR
-        #TODO: update the user generation process; we need more specific details on the users
-        #TODO: generate all users based on a distribution of Edelman’s topology of influence (TOI)
-        #TODO: add information about their background too (previous history) -- it's addressed in initialize_user_history
-        # Simulate generating user data
-        return [{'id': i, 'retweets': random.randint(0, 1000), 'tweets': random.randint(0, 500)} for i in range(num_users)]
 
     def select_active_users(self, influential_users, num_active):
         # Simulate selecting active users from the networks of influential users
