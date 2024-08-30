@@ -4,7 +4,7 @@ import random
 from datetime import timedelta
 
 class WorldModel:
-    def __init__(self, dataset_path, start_date, end_date):
+    def __init__(self, network_path, biography_path, start_date, end_date):
         self.start_date = start_date
         self.end_date = end_date
         self.current_time = start_date
