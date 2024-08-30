@@ -3,6 +3,8 @@ import os
 import json
 import random
 import time
+# load api key from environment variable
+api_key = os.getenv('GEMINI_API_KEY')
 
 for i in range(50):
 # Step 1: Read the input file containing the JSON data
@@ -19,7 +21,7 @@ for i in range(50):
 
     # Step 3: Create a new dictionary with only the selected users  
     selected_data = {user: data[user] for user in selected_users}
-    genai.configure(api_key="API_KEY")
+    genai.configure(api_key=api_key)
     with open("instruction.txt", "r") as file:
         input_text = file.read()
     with open("example_char.txt", "r") as file:
