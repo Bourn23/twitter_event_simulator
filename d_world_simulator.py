@@ -76,13 +76,12 @@ class WorldModel:
     def simulate_social_media_activity(self):
         # Simulate social media activities based on tweet data
         for user_type in ['org', 'core', 'basic']:
-            for node in self.graph.nodes():
-                user = self.graph.nodes[node]['user_id']
+            for user in self.graph.nodes():
                 if self.users_role[user] == user_type:
                     if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
-                        action_info = self.take_action(user, self.get_world_state(user), self.get_tweets_for_user(user)) # fix this
+                        action_info = self.take_action(user, self.get_tweets_for_user(user)) # fix this
                         if action_info[0]:  # Only process if there's an action
-                            self.process_action(node, action_info)
+                            self.process_action(user, action_info)
 
         self.propagate_information()
         self.current_time += timedelta(minutes=15)
@@ -90,17 +89,39 @@ class WorldModel:
     def get_tweets_for_user(self, user):
         connected_nodes = list(self.graph.neighbors(user))
         tweets = []
-        for node in connected_nodes:
-            connected_user = self.graph.nodes[node]['user']
-            tweets.extend(connected_user.posts[-5:])  # Get the last 5 posts
-        return tweets[:15]  # Limit to 15 tweets max
+
+        for connected_user_id in connected_nodes:
+            # Assume each user has a 'posts' attribute that stores their tweets
+            tweets.extend(self.read_tweet_history(connected_user_id)[-5:])  # Get the last 5 posts
+
+        # Randomly choose 15 tweets from the collected tweets
+        return random.sample(tweets, min(15, len(tweets)))
+
+    # define a function to find the type of user (core, basic, org) and the property to retrieve (name, tweets, other bio data)
+    def get_user_property(self, user, property):
+        if self.users_role[user] == 'org':
+            user_bio = self.org_bios
+        elif self.users_role[user] == 'core':
+            user_bio = self.core_bios
+        elif self.users_role[user] == 'basic':
+            user_bio = self.basic_bios
+        else:
+            raise ValueError("User not found in any biography data.")
+        
+        user_data = next((user for user in user_bio if user['aesop_id'] == user), None)
+        if user_data is None:
+            raise ValueError(f"User with ID {user} not found in the biography data.")
+        
+        return user_data.get(property)
 
     def process_action(self, node, action_info):
         action, target_post = action_info
-        user = self.graph.nodes[node]['user']
+        # print(f"User {node} is taking action: {action} on post {target_post}")
+        user = self.graph.nodes[node]
 
         if action == 'post':
-            new_post = Post(post_id=len(user.posts) + 1, content=f"User {user.name} posts something interesting.", owner=user)
+            new_post = Post(post_id=len(self.get_tweets_for_user(user) + 1), content=f"User {self.get_user_property(user,'name')} posts something interesting.", owner=user)
+            print('the type of new_post is:', type(new_post))
             self.add_to_tweet_history(user, new_post)
 
         elif action == 'like' and target_post:
@@ -117,8 +138,8 @@ class WorldModel:
             target_post.replies.append(reply_content)
             self.add_to_tweet_history(user, '<RE>'+reply_content)
 
-    def take_action(self, user, world_state, tweets):
-        current_date = world_state['current_time'].strftime('%Y-%m-%d')
+    def take_action(self, user, tweets):
+        current_date = self.current_time.strftime('%Y-%m-%d')
         
         if current_date not in self.remaining_actions and current_date in predetermined_tweets:
             self.remaining_actions[current_date] = predetermined_tweets[current_date].copy()
@@ -131,7 +152,6 @@ class WorldModel:
 
         # Determine if the user should take action
         if random.random() < action_probability:
-            print(f"User {user} ({user_role}) is taking action today.")
             if actions_today.get('URLs', 0) > 0:
                 action = 'post_url'
                 actions_today['URLs'] -= 1
@@ -150,43 +170,6 @@ class WorldModel:
         selected_tweet = random.choice(tweets) if tweets and action in ['retweet', 'reply'] else None
         
         return action, selected_tweet
-    
-    # def take_action(self, user, world_state):
-    #     # Base probabilities
-    #     base_probs = {
-    #         'post': 0.1,
-    #         'retweet': 0.2,
-    #         'reply': 0.15,
-    #         'like': 0.25,
-    #         'do_nothing': 0.3
-    #     }
-        
-    #     # Adjust probabilities based on opinion strength
-    #     opinion_strength = abs(user.opinion)
-    #     for action in ['post', 'retweet', 'reply', 'like']:
-    #         base_probs[action] *= (1 + opinion_strength)
-        
-    #     # Normalize probabilities
-    #     total = sum(base_probs.values())
-    #     action = np.random.choice(['post', 'retweet', 'reply', 'like', 'do_nothing'], p=[base_probs[action] / total for action in ['post', 'retweet', 'reply', 'like', 'do_nothing']])
-    #     target_post = None
-
-    #     if action == 'retweet' or action == 'like' or action == 'reply':
-    #         tweets = self.get_tweets_for_user(user)
-    #         if tweets:
-    #             target_post = random.choice(tweets)
-        
-    #     return action, target_post
-    # def propagate_information(self):
-    #     for edge in self.graph.edges():
-    #         source, target = edge
-    #         source_user = self.graph.nodes[source]['user']
-    #         target_user = self.graph.nodes[target]['user']
-            
-    #         # Share a summarized version of the knowledge
-    #         # TODO (later) implement a more sophisticated information sharing mechanism.
-    #         shared_info = self.summarize_knowledge(source_user.knowledge)
-    #         target_user.knowledge.update(shared_info)
 
     def summarize_knowledge(self, knowledge):
         # Simplified example of summarizing information
@@ -195,8 +178,8 @@ class WorldModel:
     def propagate_information(self):
         for edge in self.graph.edges():
             source, target = edge
-            source_user = self.graph.nodes[source]['user_id']
-            target_user = self.graph.nodes[target]['user_id']
+            source_user = self.graph.nodes[source]
+            target_user = self.graph.nodes[target]
             
             # Share post history
             for post in self.read_tweet_history(source_user):
@@ -215,7 +198,9 @@ class WorldModel:
                 if bio.get('aesop_id') == user:
                     return bio
             return None
-
+        # check if user is an empty dictionary
+        if user == {}:
+            return []
         if self.users_role[user] == 'org':
             user_bio = get_user_bio(self.org_bios, user)
         elif self.users_role[user] == 'core':

@@ -46,16 +46,17 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
         user_id_mapping[i] = user_id
 
     # Add nodes with user IDs
-    G.add_nodes_from([(i, {'user_id': user_id_mapping[i]}) for i in range(total_users)])
+    G.add_nodes_from([user_id_mapping[i] for i in range(total_users)])
 
+    all_nodes = list(G.nodes())
     # Step 2: Connect organization users to a smaller subset of others (reduce connections further)
-    for org in org_users:
+    for org in org_users_ids:
         connected_users = random.sample(basic_users + core_users, k=int(0.15 * total_users))  # Connect to 15% of users
         for user in connected_users:
-            G.add_edge(org, user)
+            G.add_edge(org, all_nodes[user])
 
     # Step 3: Core (Influential) Users based on following/followers ratio
-    for core in core_users:
+    for core in core_users_ids:
         followers_count = int(np.random.pareto(a=2.) * 8) + 1  # Slightly reduce followers count
         following_count = int(followers_count * random.uniform(0.02, 0.04))  # Slightly adjust following count
 
@@ -69,10 +70,10 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
         for _ in range(following_count):
             following = random.choice(list(G.nodes()))
             if following != core and not G.has_edge(core, following):
-                G.add_edge(core, following)
+                G.add_edge(all_nodes[core], all_nodes[following])
 
     # Step 4: Basic Users based on following/followers ratio
-    for basic in basic_users:
+    for basic in basic_users_ids:
         followers_count = int(np.random.exponential(scale=0.8)) + 1  # Reduce followers count
         following_count = int(followers_count * random.uniform(0.1, 1.2))  # Adjust following count
 
@@ -91,13 +92,14 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
     # Step 5: Ensure Connectivity
     if not nx.is_connected(G.to_undirected()):
         components = list(nx.connected_components(G.to_undirected()))
+        print("Components:", components)
         for i in range(len(components) - 1):
             u = random.choice(list(components[i]))
             v = random.choice(list(components[i + 1]))
             G.add_edge(u, v)
 
     # Step 6: Add a small number of triangles
-    for node in basic_users:
+    for node in basic_users_ids:
         neighbors = list(G.neighbors(node))
         if len(neighbors) > 1:
             u, v = random.sample(neighbors, 2)
@@ -207,4 +209,4 @@ print(comparison.to_string(index=False))
 
 ## Save the network
 nx.write_gml(social_graph, "social_network_small.gml")
-print("Network saved as social_network_small.gml")
+print("Network saved as social_network_small.gml", "with n_nodes:", len(social_graph.nodes()), "and n_edges:", len(social_graph.edges()))
