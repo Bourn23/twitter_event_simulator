@@ -79,7 +79,9 @@ class WorldModel:
             for user in self.graph.nodes():
                 if self.users_role[user] == user_type:
                     if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
-                        action_info = self.take_action(user, self.get_tweets_for_user(user))
+                        # Use the graph to fetch the most relevant tweets
+                        recent_tweets = self.get_recent_tweets_from_graph(user)
+                        action_info = self.take_action(user, recent_tweets)
                         if action_info[0]:  # Only process if there's an action
                             self.process_action(user, action_info)
 
@@ -121,35 +123,41 @@ class WorldModel:
     def process_action(self, user, action_info):
         action, target_post_id = action_info
         new_post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
-        
+
         if action == 'post':
             new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
             self.posts_graph.add_node(new_post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, new_post_id)
-        
+
         elif action == 'post_url':
             new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
             self.posts_graph.add_node(new_post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, new_post_id)
 
         elif action == 'like' and target_post_id:
+            # Increment the like count in the post node
             self.posts_graph.nodes[target_post_id]['likes'] += 1
+            # Add an edge representing the 'like' interaction
+            self.posts_graph.add_edge(user, target_post_id, interaction='like', timestamp=self.current_time)
 
         elif action == 'retweet' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
             new_content = f"RT: {target_post_data['content']}"
-            retweeted_post = f"User {self.get_user_property(user, 'name')} retweets: {new_content}"
-            self.posts_graph.add_node(new_post_id, content=retweeted_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.add_to_tweet_history(user, new_post_id)
-            self.posts_graph.add_edge(new_post_id, target_post_id, interaction='retweet', timestamp=self.current_time)
-
+            retweeted_post_id = len(self.posts_graph.nodes) + 1  # New ID for retweeted post
+            self.posts_graph.add_node(retweeted_post_id, content=new_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, retweeted_post_id)
+            # Add an edge representing the 'retweet' interaction
+            self.posts_graph.add_edge(retweeted_post_id, target_post_id, interaction='retweet', timestamp=self.current_time)
+            
         elif action == 'reply' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
-            reply_content = f"User {user} replies to {target_post_data['owner']}: Interesting!"
-            reply_post = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: {reply_content}"
-            self.posts_graph.add_node(new_post_id, content=reply_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.posts_graph.add_edge(new_post_id, target_post_id, interaction='reply', timestamp=self.current_time)
-            self.add_to_tweet_history(user, new_post_id)
+            reply_content = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: Interesting!"
+            reply_post_id = len(self.posts_graph.nodes) + 1  # New ID for reply post
+            self.posts_graph.add_node(reply_post_id, content=reply_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.posts_graph.add_edge(reply_post_id, target_post_id, interaction='reply', timestamp=self.current_time)
+            self.add_to_tweet_history(user, reply_post_id)
+            # Update the original post with the reply reference
+            self.posts_graph.nodes[target_post_id]['replies'].append(reply_post_id)
 
     def take_action(self, user, tweets):
         current_date = self.current_time.strftime('%Y-%m-%d')
@@ -251,6 +259,48 @@ class WorldModel:
             user_bio["tweets_simulation"] = []
 
         user_bio["tweets_simulation"].append(tweet)
+
+    def get_recent_tweets_from_graph(self, user, limit=15):
+        # TODO (later); more advanced idea to fetch all tweets from the user's network as well as friends of friends
+        # TODO (later); we can then have a machine learning model to predict which tweets are most likely to be interacted by the user and show those
+        # Start by fetching tweets from the user's own history
+        user_tweets = [n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
+        
+        # Sort by timestamp to get the most recent tweets
+        sorted_user_tweets = sorted(user_tweets, key=lambda n: self.posts_graph.nodes[n]['timestamp'], reverse=True)
+        
+        # Now expand to connected users (neighbors) to fetch their tweets
+        connected_users = list(self.graph.neighbors(user))
+        connected_tweets = []
+
+        for connected_user in connected_users:
+            connected_tweets.extend([n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
+        
+        # Sort connected tweets by timestamp as well
+        sorted_connected_tweets = sorted(connected_tweets, key=lambda n: self.posts_graph.nodes[n]['timestamp'], reverse=True)
+        
+        # Combine the user's tweets with connected tweets and limit the result
+        all_sorted_tweets = sorted_user_tweets + sorted_connected_tweets
+        recent_tweets = all_sorted_tweets[:limit]
+        
+        return recent_tweets
+    
+    def get_influential_tweets(self, user, limit=15):
+        # Calculate degree centrality for each tweet in the user's neighborhood
+        user_tweets = [n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
+        connected_users = list(self.graph.neighbors(user))
+        
+        connected_tweets = []
+        for connected_user in connected_users:
+            connected_tweets.extend([n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
+        
+        all_tweets = user_tweets + connected_tweets
+        
+        # Sort tweets by their degree (number of interactions)
+        influential_tweets = sorted(all_tweets, key=lambda n: self.posts_graph.degree(n), reverse=True)
+        
+        return influential_tweets[:limit]
+    
 
     def save_tweets(self, filepath):
         all_tweets = []

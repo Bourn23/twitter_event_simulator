@@ -35,3 +35,8 @@
 
 # Future work
 - we can improve network modeling from users. especially, we can have connected users be identified through their tweet histories. or even make users that have the same concerns and tweet about the same concerns and group them together.
+
+# TODOs
+[x] fix the users names
+[x] connect the worldmodel to LLM to either make decisions / or just tweets and retweets
+[x] the LLM should use the org and core users extra information [such as valence, their BEND, and positions] when simulating them
