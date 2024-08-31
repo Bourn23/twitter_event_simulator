@@ -76,9 +76,9 @@ def simulate_tweets(users, peak_factor, num_days):
     return results
 
 # Create users
-users = ([User('core') for _ in range(50)] +
-         [User('org') for _ in range(25)] +
-         [User('basic') for _ in range(425)])
+users = ([User('core') for _ in range(5)] +
+         [User('org') for _ in range(5)] +
+         [User('basic') for _ in range(25)])
 
 # Simulation parameters
 peak_factor = 2  # Increase activity on protest day

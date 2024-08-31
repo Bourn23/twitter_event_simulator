@@ -1,7 +1,7 @@
 import networkx as nx
 
 # Load the network from the file
-social_graph = nx.read_gml("social_network.gml")
+social_graph = nx.read_gml("social_network_small.gml")
 print("Network loaded from social_network.gml")
 
 # Calculate degree centrality

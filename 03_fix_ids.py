@@ -42,7 +42,7 @@ def fix_duplicate_ids(json_file_path, output_file_path):
 # File path to the JSON file containing parsed character data
 json_file_path = 'characters.json'
 # Output file path for the fixed JSON
-output_file_path = 'characters_fixed.json'
+output_file_path = 'characters_fixed_ids.json'
 
 # Run the process to fix duplicate IDs
 fix_duplicate_ids(json_file_path, output_file_path)

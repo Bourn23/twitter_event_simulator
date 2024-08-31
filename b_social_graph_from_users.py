@@ -1,23 +1,52 @@
 import networkx as nx
 import random
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
+import json
 
-def generate_social_graph_v6(num_basic_users, num_core_users, num_org_users):
+def load_users(json_file, num_users):
+    """
+    Load a subset of users from a JSON file.
+
+    Args:
+        json_file: The path to the JSON file.
+        num_users: The number of users to load from the file.
+
+    Returns:
+        A list of user data dictionaries.
+    """
+    with open(json_file, 'r') as f:
+        users_data = json.load(f)
+    
+    # Randomly sample the required number of users
+    sampled_users = random.sample(users_data, num_users)
+    return sampled_users
+
+def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_users):
     total_users = num_basic_users + num_core_users + num_org_users
     G = nx.DiGraph()  # Use a directed graph
 
-    # Step 1: Connect the graph (ensure connectivity)
-    nodes = list(range(total_users))
-    random.shuffle(nodes)
-    for i in range(total_users - 1):
-        G.add_edge(nodes[i], nodes[i + 1])
+    # Step 1: Load only the required number of users
+    basic_users_data = load_users('basic_users.json', num_basic_users)
+    core_users_data = load_users('core_users.json', num_core_users)
+    org_users_data = load_users('organization_users.json', num_org_users)
+
+    # Assign user IDs to nodes
+    basic_users_ids = [user['aesop_id'] for user in basic_users_data]
+    core_users_ids = [user['aesop_id'] for user in core_users_data]
+    org_users_ids = [user['aesop_id'] for user in org_users_data]
 
     # Initialize users
     basic_users = list(range(num_basic_users))
     core_users = list(range(num_basic_users, num_basic_users + num_core_users))
     org_users = list(range(num_basic_users + num_core_users, total_users))
+
+    # Map nodes to user IDs
+    user_id_mapping = {}
+    for i, user_id in enumerate(basic_users_ids + core_users_ids + org_users_ids):
+        user_id_mapping[i] = user_id
+
+    # Add nodes with user IDs
+    G.add_nodes_from([(i, {'user_id': user_id_mapping[i]}) for i in range(total_users)])
 
     # Step 2: Connect organization users to a smaller subset of others (reduce connections further)
     for org in org_users:
@@ -27,7 +56,6 @@ def generate_social_graph_v6(num_basic_users, num_core_users, num_org_users):
 
     # Step 3: Core (Influential) Users based on following/followers ratio
     for core in core_users:
-        # Following/Follower Ratio ~ 0.01 to 0.1 (low ratio)
         followers_count = int(np.random.pareto(a=2.) * 8) + 1  # Slightly reduce followers count
         following_count = int(followers_count * random.uniform(0.02, 0.04))  # Slightly adjust following count
 
@@ -45,7 +73,6 @@ def generate_social_graph_v6(num_basic_users, num_core_users, num_org_users):
 
     # Step 4: Basic Users based on following/followers ratio
     for basic in basic_users:
-        # Following/Follower Ratio ~ 0.1 to 10 (balanced ratio)
         followers_count = int(np.random.exponential(scale=0.8)) + 1  # Reduce followers count
         following_count = int(followers_count * random.uniform(0.1, 1.2))  # Adjust following count
 
@@ -85,6 +112,10 @@ num_basic_users = 25
 num_core_users = 5
 num_org_users = 5
 
+# Generate the network with user IDs
+social_graph = generate_social_graph_with_users(num_basic_users, num_core_users, num_org_users)
+
+import pandas as pd
 # Calculate statistics for analysis
 def calculate_network_statistics(G):
     stats = {}
@@ -144,8 +175,6 @@ def normalize_network_statistics(stats, num_nodes):
     
     return normalized_stats
 
-# Generate the social graph with adjusted parameters
-social_graph = generate_social_graph_v6(num_basic_users, num_core_users, num_org_users)
 
 # Calculate statistics excluding organization users
 generated_stats = calculate_network_statistics_excluding_orgs(social_graph, range(num_basic_users + num_core_users, num_basic_users + num_core_users + num_org_users))
@@ -175,93 +204,7 @@ comparison = pd.DataFrame({
 # Print the comparison table
 print(comparison.to_string(index=False))
 
-# Visualize degree distribution excluding organization nodes
-degrees = [d for n, d in social_graph.degree() if n not in range(num_basic_users + num_core_users, num_basic_users + num_core_users + num_org_users)]
-plt.figure(figsize=(10, 6))
-plt.hist(degrees, bins=30, edgecolor='black')
-plt.title('Degree Distribution of Generated Network (Excluding Organization Nodes)')
-plt.xlabel('Degree')
-plt.ylabel('Frequency')
-plt.show()
-
-## Interactive Network Visualization
-from pyvis.network import Network
-
-def create_interactive_network_graph(G, output_file='network.html'):
-    """
-    Creates an interactive network graph from a NetworkX graph object.
-
-    Args:
-        G: A NetworkX graph object.
-        output_file: The path to the output HTML file for the interactive network.
-
-    Returns:
-        None. The function creates and saves an interactive network visualization.
-    """
-
-    # Create a PyVis network
-    net = Network(notebook=True, directed=True)
-    net.from_nx(G)  # Load the NetworkX graph into PyVis
-
-    # Customize options (optional)
-    net.set_options("""
-    var options = {
-      "nodes": {
-        "color": {
-          "border": "rgba(0,0,0,1)",
-          "background": "rgba(97,195,238,1)",
-          "highlight": {
-            "border": "rgba(0,0,0,1)",
-            "background": "rgba(97,195,238,1)"
-          },
-          "hover": {
-            "border": "rgba(0,0,0,1)",
-            "background": "rgba(97,195,238,1)"
-          }
-        },
-        "font": {
-          "color": "rgba(0,0,0,1)",
-          "size": 12,
-          "face": "arial"
-        }
-      },
-      "edges": {
-        "color": {
-          "color": "rgba(0,0,0,0.4)",
-          "highlight": "rgba(97,195,238,1)",
-          "hover": "rgba(97,195,238,1)",
-          "inherit": true,
-          "opacity": 0.4
-        },
-        "smooth": false
-      },
-      "physics": {
-        "enabled": false,
-        "barnesHut": {
-          "gravitationalConstant": -20000,
-          "centralGravity": 0.3,
-          "springLength": 95,
-          "springConstant": 0.04,
-          "damping": 0.09,
-          "avoidOverlap": 0.1
-        },
-        "stabilization": {
-          "enabled": true,
-          "iterations": 300
-        }
-      }
-    }
-    """)
-
-    # Save the network visualization to an HTML file
-    net.show(output_file)
-    print(f"Interactive network graph saved to {output_file}")
-
-
-# Example usage with the generated social graph
-# Assuming `social_graph` is the graph created from the generate_social_graph function
-create_interactive_network_graph(social_graph, output_file='social_network_small.html')
 
 ## Save the network
 nx.write_gml(social_graph, "social_network_small.gml")
-print("Network saved as social_network.gml")
+print("Network saved as social_network_small.gml")
