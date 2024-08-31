@@ -16,25 +16,32 @@ predetermined_tweets = {
         'Retweets': 10,
         'Replies': 49
     },
-    # Add more dates as needed
+    '2040-05-31': {
+        'Tweets': 176,
+        'URLs': 85,
+        'Retweets': 15,
+        'Replies': 68
+    },
+    '2040-06-01': {
+        'Tweets': 255,
+        'URLs': 122,
+        'Retweets': 23,
+        'Replies': 85
+    },
+    '2040-06-02': {
+        'Tweets': 197,
+        'URLs': 90,
+        'Retweets': 18,
+        'Replies': 80
+    },
+    '2040-06-03': {
+        'Tweets': 146,
+        'URLs': 68,
+        'Retweets': 15,
+        'Replies': 43
+    }
 }
-# 2040-05-30: 143 tweets (URLs: 68, Retweets: 10, Replies: 49)
-# 2040-05-31: 176 tweets (URLs: 85, Retweets: 15, Replies: 68)
-# 2040-06-01: 255 tweets (URLs: 122, Retweets: 23, Replies: 85)
-# 2040-06-02: 197 tweets (URLs: 90, Retweets: 18, Replies: 80)
-# 2040-06-03: 146 tweets (URLs: 68, Retweets: 15, Replies: 43)
 
-
-
-class Post:
-    def __init__(self, post_id, content, owner):
-        self.post_id = post_id
-        self.content = content
-        self.owner = owner
-        self.likes = 0
-        self.retweets = 0
-        self.replies = []
-    
 
 class WorldModel:
     def __init__(self, network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
@@ -48,9 +55,9 @@ class WorldModel:
         self.org_bios = self.load_biographies(org_biography_path)
         self.users_role = self.initialize_users_db()
         self.remaining_actions = predetermined_tweets
+        self.posts_graph = nx.MultiDiGraph()  # Initialize the posts graph from the start
 
     def initialize_users_db(self): 
-        # generate a dictionary of user_ids and their corresponding user_type (core, basic, org) from the biography data
         user_types = {}
         for user in self.core_bios:
             user_types[user['aesop_id']] = 'core'
@@ -61,25 +68,18 @@ class WorldModel:
         return user_types
 
     def load_network(self, network_path):
-        """
-        Load the existing social network from a .gml file.
-        """
         return nx.read_gml(network_path)
     
     def load_biographies(self, biography_path):
-        """
-        Load the biographies of the actors from a JSON file.
-        """
         with open(biography_path, 'r') as file:
             return json.load(file)
 
     def simulate_social_media_activity(self):
-        # Simulate social media activities based on tweet data
         for user_type in ['org', 'core', 'basic']:
             for user in self.graph.nodes():
                 if self.users_role[user] == user_type:
                     if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
-                        action_info = self.take_action(user, self.get_tweets_for_user(user)) # fix this
+                        action_info = self.take_action(user, self.get_tweets_for_user(user))
                         if action_info[0]:  # Only process if there's an action
                             self.process_action(user, action_info)
 
@@ -91,114 +91,17 @@ class WorldModel:
         tweets = []
 
         for connected_user_id in connected_nodes:
-            # Assume each user has a 'posts' attribute that stores their tweets
             tweets.extend(self.read_tweet_history(connected_user_id)[-5:])  # Get the last 5 posts
 
-        # Randomly choose 15 tweets from the collected tweets
         return random.sample(tweets, min(15, len(tweets)))
 
-    # define a function to find the type of user (core, basic, org) and the property to retrieve (name, tweets, other bio data)
     def get_user_property(self, user, property):
-        if self.users_role[user] == 'org':
-            user_bio = self.org_bios
-        elif self.users_role[user] == 'core':
-            user_bio = self.core_bios
-        elif self.users_role[user] == 'basic':
-            user_bio = self.basic_bios
-        else:
-            raise ValueError("User not found in any biography data.")
-        
-        user_data = next((user for user in user_bio if user['aesop_id'] == user), None)
-        if user_data is None:
-            raise ValueError(f"User with ID {user} not found in the biography data.")
-        
-        return user_data.get(property)
-
-    def process_action(self, node, action_info):
-        action, target_post = action_info
-        # print(f"User {node} is taking action: {action} on post {target_post}")
-        user = self.graph.nodes[node]
-
-        if action == 'post':
-            new_post = Post(post_id=len(self.get_tweets_for_user(user) + 1), content=f"User {self.get_user_property(user,'name')} posts something interesting.", owner=user)
-            print('the type of new_post is:', type(new_post))
-            self.add_to_tweet_history(user, new_post)
-
-        elif action == 'like' and target_post:
-            target_post.likes += 1
-            self.add_to_tweet_history(user, '<LIKE>'+target_post)
-
-        elif action == 'retweet' and target_post:
-            target_post.retweets += 1
-            retweeted_post = Post(post_id=len(self.read_tweet_history(user)) + 1, content=f"RT: {target_post.content}", owner=user)
-            self.add_to_tweet_history(user, '<RT>'+retweeted_post)
-
-        elif action == 'reply' and target_post:
-            reply_content = f"User {user} replies to {target_post.owner}: Interesting!"
-            target_post.replies.append(reply_content)
-            self.add_to_tweet_history(user, '<RE>'+reply_content)
-
-    def take_action(self, user, tweets):
-        current_date = self.current_time.strftime('%Y-%m-%d')
-        
-        if current_date not in self.remaining_actions and current_date in predetermined_tweets:
-            self.remaining_actions[current_date] = predetermined_tweets[current_date].copy()
-
-        actions_today = self.remaining_actions.get(current_date, {})
-
-        # Calculate action probability based on user role
-        user_role = self.users_role[user]
-        action_probability = priority_weights[user_role] / sum(priority_weights.values())
-
-        # Determine if the user should take action
-        if random.random() < action_probability:
-            if actions_today.get('URLs', 0) > 0:
-                action = 'post_url'
-                actions_today['URLs'] -= 1
-            elif actions_today.get('Retweets', 0) > 0:
-                action = 'retweet'
-                actions_today['Retweets'] -= 1
-            elif actions_today.get('Replies', 0) > 0:
-                action = 'reply'
-                actions_today['Replies'] -= 1
-            else:
-                action = None
-        else:
-            action = None
-
-        # Select a tweet to interact with if retweeting or replying
-        selected_tweet = random.choice(tweets) if tweets and action in ['retweet', 'reply'] else None
-        
-        return action, selected_tweet
-
-    def summarize_knowledge(self, knowledge):
-        # Simplified example of summarizing information
-        return {k for k in knowledge if 'important' in k}  # Arbitrary filter
-
-    def propagate_information(self):
-        for edge in self.graph.edges():
-            source, target = edge
-            source_user = self.graph.nodes[source]
-            target_user = self.graph.nodes[target]
-            
-            # Share post history
-            for post in self.read_tweet_history(source_user):
-                if post not in self.read_tweet_history(target_user):
-                    self.add_to_tweet_history(target_user,post)
-
-    def get_world_state(self, user):
-        return {
-            'current_time': self.current_time,
-            'read_tweet_history': self.read_tweet_history(user)[-15:],  # Limit to last 15 tweets
-        }
-    
-    def read_tweet_history(self, user):
         def get_user_bio(bios, user):
             for bio in bios:
                 if bio.get('aesop_id') == user:
                     return bio
             return None
-        # check if user is an empty dictionary
+        
         if user == {}:
             return []
         if self.users_role[user] == 'org':
@@ -213,10 +116,116 @@ class WorldModel:
         if user_bio is None:
             raise ValueError(f"User with ID {user} not found in the biography data.")
         
-        if user_bio.get("tweet_history"):
-            return user_bio["tweet_history"]
+        return user_bio.get(property)
+
+    def process_action(self, user, action_info):
+        action, target_post_id = action_info
+        new_post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
+        
+        if action == 'post':
+            new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
+            self.posts_graph.add_node(new_post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, new_post_id)
+        
+        elif action == 'post_url':
+            new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
+            self.posts_graph.add_node(new_post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, new_post_id)
+
+        elif action == 'like' and target_post_id:
+            self.posts_graph.nodes[target_post_id]['likes'] += 1
+
+        elif action == 'retweet' and target_post_id:
+            target_post_data = self.posts_graph.nodes[target_post_id]
+            new_content = f"RT: {target_post_data['content']}"
+            retweeted_post = f"User {self.get_user_property(user, 'name')} retweets: {new_content}"
+            self.posts_graph.add_node(new_post_id, content=retweeted_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, new_post_id)
+            self.posts_graph.add_edge(new_post_id, target_post_id, interaction='retweet', timestamp=self.current_time)
+
+        elif action == 'reply' and target_post_id:
+            target_post_data = self.posts_graph.nodes[target_post_id]
+            reply_content = f"User {user} replies to {target_post_data['owner']}: Interesting!"
+            reply_post = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: {reply_content}"
+            self.posts_graph.add_node(new_post_id, content=reply_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.posts_graph.add_edge(new_post_id, target_post_id, interaction='reply', timestamp=self.current_time)
+            self.add_to_tweet_history(user, new_post_id)
+
+    def take_action(self, user, tweets):
+        current_date = self.current_time.strftime('%Y-%m-%d')
+        
+        if current_date not in self.remaining_actions and current_date in predetermined_tweets:
+            self.remaining_actions[current_date] = predetermined_tweets[current_date].copy()
+
+        actions_today = self.remaining_actions.get(current_date, {})
+
+        user_role = self.users_role[user]
+        action_probability = priority_weights[user_role] / sum(priority_weights.values())
+
+        if random.random() < action_probability:
+            if actions_today.get('URLs', 0) > 0:
+                action = 'post_url'
+                actions_today['URLs'] -= 1
+            elif actions_today.get('Tweets', 0) > 0:
+                action = 'post'
+                actions_today['Tweets'] -= 1
+                actions_today['URLs'] -= 1 # Assume that a tweet with a URL is also a tweet
+            elif actions_today.get('Retweets', 0) > 0:
+                action = 'retweet'
+                actions_today['Retweets'] -= 1
+            elif actions_today.get('Replies', 0) > 0:
+                action = 'reply'
+                actions_today['Replies'] -= 1
+            else:
+                action = None
         else:
-            user_bio["tweet_history"] = []
+            action = None
+
+        selected_tweet = random.choice(tweets) if tweets and action in ['retweet', 'reply'] else None
+        
+        return action, selected_tweet
+
+    def propagate_information(self):
+        for edge in self.graph.edges():
+            source, target = edge
+            source_user = self.graph.nodes[source]
+            target_user = self.graph.nodes[target]
+            
+            for post in self.read_tweet_history(source_user):
+                if post not in self.read_tweet_history(target_user):
+                    self.add_to_tweet_history(target_user, post)
+
+    def get_world_state(self, user):
+        return {
+            'current_time': self.current_time,
+            'read_tweet_history': self.read_tweet_history(user)[-15:],  # Limit to last 15 tweets
+        }
+    
+    def read_tweet_history(self, user):
+        def get_user_bio(bios, user):
+            for bio in bios:
+                if bio.get('aesop_id') == user:
+                    return bio
+            return None
+        
+        if user == {}:
+            return []
+        if self.users_role[user] == 'org':
+            user_bio = get_user_bio(self.org_bios, user)
+        elif self.users_role[user] == 'core':
+            user_bio = get_user_bio(self.core_bios, user)
+        elif self.users_role[user] == 'basic':
+            user_bio = get_user_bio(self.basic_bios, user)
+        else:
+            raise ValueError("User not found in any biography data.")
+        
+        if user_bio is None:
+            raise ValueError(f"User with ID {user} not found in the biography data.")
+        
+        if user_bio.get("tweets_simulation"):
+            return user_bio["tweets_simulation"]
+        else:
+            user_bio["tweets_simulation"] = []
             return user_bio.get("tweets", [])
 
     def add_to_tweet_history(self, user, tweet):
@@ -238,27 +247,46 @@ class WorldModel:
         if user_bio is None:
             raise ValueError(f"User with ID {user} not found in the biography data.")
         
-        if "tweet_history" not in user_bio:
-            user_bio["tweet_history"] = []
+        if "tweets_simulation" not in user_bio:
+            user_bio["tweets_simulation"] = []
 
-        user_bio["tweet_history"].append(tweet)
+        user_bio["tweets_simulation"].append(tweet)
 
     def save_tweets(self, filepath):
         all_tweets = []
-        for node in self.graph.nodes():
-            user = self.graph.nodes[node]['user_id']
-            for post in self.read_tweet_history(user):
-                all_tweets.append({
-                    'post_id': post.post_id,
-                    'content': post.content,
-                    'owner': post.owner,
-                    'likes': post.likes,
-                    'retweets': post.retweets,
-                    'replies': post.replies
-                })
+        
+        # Extract information from nodes (tweets)
+        for node, data in self.posts_graph.nodes(data=True):
+            tweet_info = {
+                'post_id': node,
+                'content': data.get('content'),
+                'owner': data.get('owner'),
+                'timestamp': data.get('timestamp').isoformat() if data.get('timestamp') else None,
+                'likes': data.get('likes', 0),
+                'retweets': data.get('retweets', 0),
+                'replies': data.get('replies', [])
+            }
+            all_tweets.append(tweet_info)
+
+        # Extract information from edges (interactions)
+        all_interactions = []
+        for source, target, data in self.posts_graph.edges(data=True):
+            interaction_info = {
+                'source_post_id': source,
+                'target_post_id': target,
+                'interaction': data.get('interaction'),
+                'timestamp': data.get('timestamp').isoformat() if data.get('timestamp') else None
+            }
+            all_interactions.append(interaction_info)
+
+        # Save the tweets and interactions to a file
+        save_data = {
+            'tweets': all_tweets,
+            'interactions': all_interactions
+        }
 
         with open(filepath, 'w') as file:
-            json.dump(all_tweets, file, indent=4)
+            json.dump(save_data, file, indent=4)
 
 # Simulation Runner
 def run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
@@ -281,6 +309,6 @@ if __name__ == "__main__":
     org_biography_path = 'organization_users.json'
 
     start_date = datetime(2040, 5, 30)
-    end_date = datetime(2040, 6, 1)
+    end_date = datetime(2040, 6, 4)
     final_state = run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     print("Simulation completed.")
