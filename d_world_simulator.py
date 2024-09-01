@@ -178,44 +178,115 @@ class WorldModel:
         actions_today = self.remaining_actions.get(current_date, {})
         user_role = self.users_role[user]
 
-        # Define the priority weights for each user role
-        action_probability = priority_weights[user_role] / sum(priority_weights.values())
-        # modify the action probability to also consider the time of the day; higher probability of posting in the morning and evening
+        if user_role in ['org', 'core']:
+            action, selected_tweet = self.take_action_with_gpt4(user, tweets, actions_today)
+        else:
+            action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
+
+        return action, selected_tweet
+
+    def take_action_with_gpt4(self, user, tweets, actions_today):
+        # Use GPT-4 to generate the next action
+        prompt = self.construct_prompt(user, tweets, actions_today)
+
+        response = openai.ChatCompletion.create(
+            model = 'gpt-4o-mini',
+            messages = [
+                {"role": "system", "content": "You are an expert in social media simulations."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        # Process LLM response
+        action, selected_tweet = self.process_gpt4_response(response, actions_today, tweets)
+
+        return action, selected_tweet
+    
+    def construct_prompt(self, user, tweets, actions_today):
+        prompt = (
+            f"User role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
+            f"Current time: {self.current_time}.\n"
+            f"Available actions for today: {actions_today}.\n"
+            f"Recent tweets in (tweet_id, tweet) format:\n <tweets> {[(tweet_id, self.posts_graph.nodes[tweet_id]['content']) for tweet_id in tweets]}.\n </tweets>\n"
+            f"Considering the user's preferences, bio, time of day, and available actions, "
+            f"choose the most reasonable action the user should take next (post, post_url, retweet, reply, like)?"
+            f"ALWAYS return answer in the format of [action, selected_tweet]." # might need to provide more context for the model to understand the task
+        )
+        return prompt
+    
+    def process_gpt4_response(self, response, actions_today, tweets):
+        action = None
+        selected_tweet = None
+        
+        # Parse the GPT-4 response to extract the recommended action
+        gpt4_action = response['choices'][0]['message']['content'].strip().lower()
+        
+        # Ensure the action is within the available actions
+        if 'post_url' in gpt4_action and actions_today.get('URLs', 0) > 0:
+            action = 'post_url'
+            actions_today['URLs'] -= 1
+            actions_today['Tweets'] -= 1
+        elif 'post' in gpt4_action and actions_today.get('Tweets', 0) > 0:
+            action = 'post'
+            actions_today['Tweets'] -= 1
+            actions_today['URLs'] -= 1 # Assume that a tweet with a URL is also a tweet
+        elif 'retweet' in gpt4_action and actions_today.get('Retweets', 0) > 0:
+            action = 'retweet'
+            actions_today['Retweets'] -= 1
+        elif 'reply' in gpt4_action and actions_today.get('Replies', 0) > 0:
+            action = 'reply'
+            actions_today['Replies'] -= 1
+        elif 'like' in gpt4_action and actions_today.get('Likes', 0) > 0:
+            action = 'like'
+            actions_today['Likes'] -= 1
+
+        # Select a tweet for retweet, reply, or like if needed
+        if action in ['retweet', 'reply', 'like']:
+            selected_tweet = random.choice(tweets) if tweets else None
+        
+        return action, selected_tweet
+
+    def take_action_for_basic_user(self, user, tweets, actions_today):
+        # Define a simpler, rule-based behavior for basic users
+        action_probability = 0.3  # Basic users have a lower probability of taking any action
+        
+        # Adjust based on time of day
         time_of_day_weight = 1.0
         if 6 <= self.current_time.hour < 12:
-            time_of_day_weight = 1.5
+            time_of_day_weight = 1.2
         elif 18 <= self.current_time.hour < 24:
-            time_of_day_weight = 1
+            time_of_day_weight = 1.1
         else:
-            time_of_day_weight = 0.5    
-        action_probability = action_probability * time_of_day_weight
+            time_of_day_weight = 0.8
+        action_probability *= time_of_day_weight
 
         if random.random() < action_probability:
-            if actions_today.get('URLs', 0) > 0:
-                action = 'post_url'
-                actions_today['URLs'] -= 1
-                actions_today['Tweets'] -= 1
-            elif actions_today.get('Tweets', 0) > 0:
-                action = 'post'
-                actions_today['Tweets'] -= 1
-                actions_today['URLs'] -= 1 # Assume that a tweet with a URL is also a tweet
-            elif actions_today.get('Retweets', 0) > 0:
-                action = 'retweet'
-                actions_today['Retweets'] -= 1
-            elif actions_today.get('Replies', 0) > 0:
-                action = 'reply'
-                actions_today['Replies'] -= 1
-            elif actions_today.get('Likes', 0) > 0:
-                action = 'like'
-                actions_today['Likes'] -= 1
-            else:
-                action = None
+            action = self.select_best_action(actions_today)
         else:
             action = None
 
-        selected_tweet = random.choice(tweets) if tweets and action in ['retweet', 'reply', 'like'] else None
+        selected_tweet = self.select_tweet_for_action(action, tweets)
         
         return action, selected_tweet
+    
+    def select_best_action(self, actions_today):
+        # Multi-criteria decision-making to select the best action
+        if actions_today.get('Likes', 0) > 0:
+            return 'like'
+        elif actions_today.get('Replies', 0) > 0:
+            return 'reply'
+        elif actions_today.get('Tweets', 0) > 0:
+            return 'post'
+        elif actions_today.get('Retweets', 0) > 0:
+            return 'retweet'
+        elif actions_today.get('URLs', 0) > 0:
+            return 'post_url'
+        return None
+
+    def select_tweet_for_action(self, action, tweets):
+        if action in ['retweet', 'reply', 'like']:
+            return self.get_most_influential_tweet(tweets)
+        return None
 
     def propagate_information(self):
         for edge in self.graph.edges():
