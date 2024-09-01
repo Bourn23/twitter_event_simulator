@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import openai
 import os
 import concurrent.futures
+import time
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -16,39 +17,39 @@ priority_weights = {
 
 predetermined_tweets = {
     '2040-05-30': {
-        'Tweets': 1936-980,
-        'URLs': 980,
-        'Retweets': 189,
-        'Replies': 647,
-        'Likes': 2800,
+        'post': 1936-980,
+        'post_url': 980,
+        'retweet': 189,
+        'reply': 647,
+        'like': 2800,
     },
     '2040-05-31': {
-        'Tweets': 2354-1197,
-        'URLs': 1197,
-        'Retweets': 227,
-        'Replies': 732,
-        'Likes': 19000,
+        'post': 2354-1197,
+        'post_url': 1197,
+        'retweet': 227,
+        'reply': 732,
+        'like': 19000,
     },
     '2040-06-01': {
-        'Tweets': 3495-1771,
-        'URLs': 1771,
-        'Retweets': 351,
-        'Replies': 1109,
-        'Likes': 16520
+        'post': 3495-1771,
+        'post_url': 1771,
+        'retweet': 351,
+        'reply': 1109,
+        'like': 16520
     },
     '2040-06-02': {
-        'Tweets': 2274-1213,
-        'URLs': 1213,
-        'Retweets': 188,
-        'Replies': 712,
-        'Likes': 9200
+        'post': 2274-1213,
+        'post_url': 1213,
+        'retweet': 188,
+        'reply': 712,
+        'like': 9200
     },
     '2040-06-03': {
-        'Tweets': 1929-957,
-        'URLs': 957,
-        'Retweets': 185,
-        'Replies': 600,
-        'Likes': 4333
+        'post': 1929-957,
+        'post_url': 957,
+        'retweet': 185,
+        'reply': 600,
+        'like': 4333
     }
 }
 
@@ -83,40 +84,39 @@ class WorldModel:
         with open(biography_path, 'r') as file:
             return json.load(file)
 
-    # def simulate_social_media_activity(self):
-    #     for user_type in ['org', 'core', 'basic']:
-    #         graph_nodes = list(self.graph.nodes())
-    #         shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
-    #         for user in shuffled_graph_nodes:
-    #             if self.users_role[user] == user_type:
-    #                 if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
-    #                     # Use the graph to fetch the most relevant tweets
-    #                     recent_tweets = self.get_recent_tweets_from_graph(user)
-    #                     action_info = self.take_action(user, recent_tweets)
-    #                     if action_info[0]:  # Only process if there's an action
-    #                         self.process_action(user, action_info)
+    def simulate_social_media_activity(self):
+        for user_type in ['org', 'core', 'basic']:
+            graph_nodes = list(self.graph.nodes())
+            shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
+            for user in shuffled_graph_nodes:
+                if self.users_role[user] == user_type:
+                    if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+                        # Use the graph to fetch the most relevant tweets
+                        recent_tweets = self.get_recent_tweets_from_graph(user)
+                        action_info = self.take_action(user, recent_tweets)
+                        if action_info[0]:  # Only process if there's an action
+                            self.process_action(user, action_info)
 
-    #     self.propagate_information()
-    #     self.current_time += timedelta(minutes=15)
+        self.propagate_information()
+        self.current_time += timedelta(minutes=15)
 
     def simulate_social_media_activity_parallel(self):
         users_by_type = {'org': [], 'core': [], 'basic': []}
 
-        # separate users by type for parallel processing
-        graph_nodes = list(self.graph.nodes())
-        shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
-        for user in shuffled_graph_nodes:
-            users_by_type[self.users_role[user]].append(user)
-        
+        # Separate users by type for parallel processing
+        for user in self.graph.nodes():
+            user_type = self.users_role[user]
+            users_by_type[user_type].append(user)
+
         # Process each user type in parallel
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = []
-            for users in users_by_type.keys():
-                futures.append(executor.submit(self.process_users, users, users_by_type[users]))
+            for user_type in ['org', 'core', 'basic']:
+                futures.append(executor.submit(self.process_users, users_by_type[user_type]))
 
-            # Ensure all threads are completed
+            # Ensure all threads are complete
             concurrent.futures.wait(futures)
-        
+
         self.propagate_information()
         self.current_time += timedelta(minutes=15)
 
@@ -125,8 +125,28 @@ class WorldModel:
             if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
                 recent_tweets = self.get_recent_tweets_from_graph(user)
                 action_info = self.take_action(user, recent_tweets)
-                if action_info[0]: # Only process if there's an action
+                if action_info[0]:  # Only process if there's an action
                     self.process_action(user, action_info)
+
+    def process_users_batched(self, users):
+        batched_nodes = []
+        batched_edges = []
+        batched_updates = []
+
+        for user in users:
+            if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+                recent_tweets = self.get_recent_tweets_from_graph(user)
+                action_info = self.take_action(user, recent_tweets)
+                if action_info[0]: # Only process if there's an action
+                    # self.process_action(user, action_info)
+                    # Collect the updates in batches
+                    new_nodes, new_edges, new_updates = self.process_action_batched(user, action_info, collect_only=True)
+                    batched_nodes.extend(new_nodes)
+                    batched_edges.extend(new_edges)
+                    batched_updates.extend(new_updates)
+        
+        # Apply all updates in a batch
+        self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
 
     def get_tweets_for_user(self, user):
         connected_nodes = list(self.graph.neighbors(user))
@@ -160,7 +180,7 @@ class WorldModel:
         
         return user_bio.get(property)
 
-    def process_action_batched(self, user, action_info):
+    def process_action_batched(self, user, action_info, collect_only=False):
         action, target_post_id = action_info
         new_post_id = len(self.posts_graph.nodes) + 1
 
@@ -198,8 +218,11 @@ class WorldModel:
             batched_updates.append(("tweet_history", user, reply_post_id))
             batched_updates.append(("add_reply", target_post_id, reply_post_id))
 
-        # Apply batched updates to the graph
-        self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
+        if collect_only:
+            return batched_nodes, batched_edges, batched_updates
+        else:
+            # Apply batched updates to the graph
+            self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
 
     def apply_batched_updates(self, batched_nodes, batched_edges, batched_updates):
         # Add all nodes in a batch
@@ -216,7 +239,6 @@ class WorldModel:
                 self.posts_graph.nodes[update[1]]['likes'] += 1
             elif update[0] == 'add_reply':
                 self.posts_graph.nodes[update[1]]['replies'].append(update[2])
-
 
     def process_action(self, user, action_info):
         action, target_post_id = action_info
@@ -336,10 +358,10 @@ class WorldModel:
         return action, selected_tweet
 
     def take_action_for_basic_user(self, user, tweets, actions_today):
-        # Define a simpler, rule-based behavior for basic users
-        action_probability = 0.3  # Basic users have a lower probability of taking any action
+        # Define a base action probability for basic users
+        base_action_probability = 0.8
         
-        # Adjust based on time of day
+        # Dynamic adjustment based on context (e.g., time of day, user engagement)
         time_of_day_weight = 1.0
         if 6 <= self.current_time.hour < 12:
             time_of_day_weight = 1.2
@@ -347,10 +369,15 @@ class WorldModel:
             time_of_day_weight = 1.1
         else:
             time_of_day_weight = 0.8
-        action_probability *= time_of_day_weight
-
+        
+        # Adjust probability based on other contextual factors (e.g., user engagement)
+        engagement_factor = 1.0  # Placeholder for any dynamic adjustments based on engagement
+        action_probability = base_action_probability * time_of_day_weight * engagement_factor
+        
+        # Decide whether to take an action
         if random.random() < action_probability:
-            action = self.select_best_action(actions_today)
+            user_context = {'time_of_day': 'morning' if 6 <= self.current_time.hour < 12 else 'evening'}
+            action = self.select_best_action(actions_today, user_context)
         else:
             action = None
 
@@ -358,25 +385,56 @@ class WorldModel:
         
         return action, selected_tweet
     
-    def select_best_action(self, actions_today):
-        # Multi-criteria decision-making to select the best action
-        if actions_today.get('Likes', 0) > 0:
-            return 'like'
-        elif actions_today.get('Replies', 0) > 0:
-            return 'reply'
-        elif actions_today.get('Tweets', 0) > 0:
-            return 'post'
-        elif actions_today.get('Retweets', 0) > 0:
-            return 'retweet'
-        elif actions_today.get('URLs', 0) > 0:
-            return 'post_url'
-        return None
+    def select_best_action(self, actions_today, user_context):
+        weights = {
+            'like': 1.0,
+            'reply': 1.5,
+            'post': 2.0,
+            'retweet': 1.2,
+            'post_url': 2.5,
+        }
+
+        # Adjust weights based on context
+        # if user_context.get('time_of_day') == 'morning':
+        #     weights['post'] *= 1.2
+        #     weights['post_url'] *= 1.1
+        # elif user_context.get('time_of_day') == 'evening':
+        #     weights['like'] *= 1.3
+        #     weights['reply'] *= 1.2
+
+        # Calculate the scores
+        action_scores = {action: count * weights[action] for action, count in actions_today.items() if count > 0}
+        if not action_scores:
+            return None
+
+        # Convert scores to probabilities
+        total_score = sum(action_scores.values())
+        probabilities = {action: score / total_score for action, score in action_scores.items()}
+
+        # Choose an action based on probabilities
+        chosen_action = random.choices(list(probabilities.keys()), list(probabilities.values()))[0]
+        return chosen_action
 
     def select_tweet_for_action(self, action, tweets):
         if action in ['retweet', 'reply', 'like']:
             return self.get_most_influential_tweet(tweets)
         return None
 
+    def get_most_influential_tweet(self, tweets):
+        if not tweets:
+            return None
+        
+        # Calculate the influence score for each tweet
+        influence_scores = {tweet: self.calculate_influence_score(tweet) for tweet in tweets}
+        
+        # Select the tweet with the highest influence score
+        return max(influence_scores, key=influence_scores.get)
+
+    def calculate_influence_score(self, tweet):
+        # Simple influence score based on likes, retweets, and replies
+        tweet_data = self.posts_graph.nodes[tweet]
+        return 0.4 * tweet_data.get('likes', 0) + 0.3 * tweet_data.get('retweets', 0) + 0.3 * len(tweet_data.get('replies', []))
+    
     def propagate_information(self):
         for edge in self.graph.edges():
             source, target = edge
@@ -465,6 +523,8 @@ class WorldModel:
         
         # Combine the user's tweets with connected tweets and limit the result
         all_sorted_tweets = sorted_user_tweets + sorted_connected_tweets
+
+        #TODO: Choose tweets based on their weight instead of just selecting the first n
         recent_tweets = all_sorted_tweets[:limit]
         
         return recent_tweets
@@ -487,7 +547,6 @@ class WorldModel:
         sampled_tweets = random.choices(influential_tweets, weights=[self.posts_graph.degree(n) for n in influential_tweets], k=limit)
         
         return sampled_tweets
-    
 
     def save_tweets(self, filepath):
         all_tweets = []
@@ -529,13 +588,16 @@ class WorldModel:
 def run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
     world = WorldModel(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     
+    # Measure the time taken for the simulation
+    start_time = time.time()
     while world.current_time <= world.end_date:
         # world.simulate_social_media_activity()
         world.simulate_social_media_activity_parallel()
         
         if world.current_time.minute == 0:  # Log every hour
-            print(f"Simulation time: {world.current_time}")
-    
+            print(f"Simulation time: {world.current_time}, time elapsed: {time.time() - start_time:.2f} seconds.")
+
+    print("Execution time:", time.time() - start_time)
     return world.save_tweets('simulation_results.json')
 
 
@@ -547,7 +609,7 @@ if __name__ == "__main__":
     org_biography_path = 'total_organizations_fixed_ids.json'
 
     start_date = datetime(2040, 5, 30)
-    end_date = datetime(2040, 6, 4)
+    end_date = datetime(2040, 5, 31)
     final_state = run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     print("Simulation completed.")
 

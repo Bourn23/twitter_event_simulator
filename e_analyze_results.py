@@ -5,6 +5,9 @@ def analyze_results(filepath):
     with open(filepath, 'r') as file:
         data = json.load(file)
     
+    # Exclude posts that have no content (i.e., content is null)
+    data['tweets'] = [tweet for tweet in data['tweets'] if tweet['content'] is not None]
+
     # Count the total number of tweets
     total_tweets = len(data.get('tweets', []))
     
