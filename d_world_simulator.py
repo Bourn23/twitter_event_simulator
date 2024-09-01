@@ -4,6 +4,7 @@ import random
 from datetime import datetime, timedelta
 import openai
 import os
+import concurrent.futures
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -82,21 +83,50 @@ class WorldModel:
         with open(biography_path, 'r') as file:
             return json.load(file)
 
-    def simulate_social_media_activity(self):
-        for user_type in ['org', 'core', 'basic']:
-            graph_nodes = list(self.graph.nodes())
-            shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
-            for user in shuffled_graph_nodes:
-                if self.users_role[user] == user_type:
-                    if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
-                        # Use the graph to fetch the most relevant tweets
-                        recent_tweets = self.get_recent_tweets_from_graph(user)
-                        action_info = self.take_action(user, recent_tweets)
-                        if action_info[0]:  # Only process if there's an action
-                            self.process_action(user, action_info)
+    # def simulate_social_media_activity(self):
+    #     for user_type in ['org', 'core', 'basic']:
+    #         graph_nodes = list(self.graph.nodes())
+    #         shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
+    #         for user in shuffled_graph_nodes:
+    #             if self.users_role[user] == user_type:
+    #                 if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+    #                     # Use the graph to fetch the most relevant tweets
+    #                     recent_tweets = self.get_recent_tweets_from_graph(user)
+    #                     action_info = self.take_action(user, recent_tweets)
+    #                     if action_info[0]:  # Only process if there's an action
+    #                         self.process_action(user, action_info)
 
+    #     self.propagate_information()
+    #     self.current_time += timedelta(minutes=15)
+
+    def simulate_social_media_activity_parallel(self):
+        users_by_type = {'org': [], 'core': [], 'basic': []}
+
+        # separate users by type for parallel processing
+        graph_nodes = list(self.graph.nodes())
+        shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
+        for user in shuffled_graph_nodes:
+            users_by_type[self.users_role[user]].append(user)
+        
+        # Process each user type in parallel
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = []
+            for users in users_by_type.keys():
+                futures.append(executor.submit(self.process_users, users, users_by_type[users]))
+
+            # Ensure all threads are completed
+            concurrent.futures.wait(futures)
+        
         self.propagate_information()
         self.current_time += timedelta(minutes=15)
+
+    def process_users(self, users):
+        for user in users:
+            if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+                recent_tweets = self.get_recent_tweets_from_graph(user)
+                action_info = self.take_action(user, recent_tweets)
+                if action_info[0]: # Only process if there's an action
+                    self.process_action(user, action_info)
 
     def get_tweets_for_user(self, user):
         connected_nodes = list(self.graph.neighbors(user))
@@ -129,6 +159,64 @@ class WorldModel:
             raise ValueError(f"User with ID {user} not found in the biography data.")
         
         return user_bio.get(property)
+
+    def process_action_batched(self, user, action_info):
+        action, target_post_id = action_info
+        new_post_id = len(self.posts_graph.nodes) + 1
+
+        batched_nodes = []
+        batched_edges = []
+        batched_updates = []
+
+        if action == 'post':
+            new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
+            batched_nodes.append((new_post_id, {'content': new_post, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+            batched_updates.append(("tweet_history", user, new_post_id))
+
+        elif action == 'post_url':
+            new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
+            batched_nodes.append((new_post_id, {'content': new_post, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+            batched_updates.append(("tweet_history", user, new_post_id))
+
+        elif action == 'like' and target_post_id:
+            batched_updates.append(("like", target_post_id, user))
+        
+        elif action == 'retweet' and target_post_id:
+            target_post_data = self.posts_graph.nodes[target_post_id]
+            new_content = f"RT: {target_post_data['content']}"
+            retweeted_post_id = len(self.posts_graph.nodes) + 1 # new id for retweeted post
+            batched_nodes.append((retweeted_post_id, {'content': new_content, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+            batched_edges.append((retweeted_post_id, target_post_id, {'interaction': 'retweet', 'timestamp': self.current_time}))
+            batched_updates.append(("tweet_history", user, retweeted_post_id))
+        
+        elif action == 'reply' and target_post_id:
+            target_post_data = self.posts_graph.nodes[target_post_id]
+            reply_content = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: Interesting!"
+            reply_post_id = len(self.posts_graph.nodes) + 1  # New ID for reply post
+            batched_nodes.append((reply_post_id, {'content': reply_content, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+            batched_edges.append((reply_post_id, target_post_id, {'interaction': 'reply', 'timestamp': self.current_time}))
+            batched_updates.append(("tweet_history", user, reply_post_id))
+            batched_updates.append(("add_reply", target_post_id, reply_post_id))
+
+        # Apply batched updates to the graph
+        self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
+
+    def apply_batched_updates(self, batched_nodes, batched_edges, batched_updates):
+        # Add all nodes in a batch
+        self.posts_graph.add_nodes_from(batched_nodes)
+
+        # Add all edges in a batch
+        self.posts_graph.add_edges_from(batched_edges)
+
+        # Apply all updates
+        for update in batched_updates:
+            if update[0] == 'tweet_history':
+                self.add_to_tweet_history(update[1], update[2])
+            elif update[0] == 'like':
+                self.posts_graph.nodes[update[1]]['likes'] += 1
+            elif update[0] == 'add_reply':
+                self.posts_graph.nodes[update[1]]['replies'].append(update[2])
+
 
     def process_action(self, user, action_info):
         action, target_post_id = action_info
@@ -179,7 +267,8 @@ class WorldModel:
         user_role = self.users_role[user]
 
         if user_role in ['org', 'core']:
-            action, selected_tweet = self.take_action_with_gpt4(user, tweets, actions_today)
+            # action, selected_tweet = self.take_action_with_gpt4(user, tweets, actions_today)
+            action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
         else:
             action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
 
@@ -441,7 +530,8 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
     world = WorldModel(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     
     while world.current_time <= world.end_date:
-        world.simulate_social_media_activity()
+        # world.simulate_social_media_activity()
+        world.simulate_social_media_activity_parallel()
         
         if world.current_time.minute == 0:  # Log every hour
             print(f"Simulation time: {world.current_time}")
