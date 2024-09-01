@@ -292,11 +292,11 @@ class WorldModel:
         if user_role in ['org', 'core']:
             # action, selected_tweet = self.take_action_with_gpt4(user, tweets, actions_today)
             action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
+
         else:
             action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
 
         return action, selected_tweet
-
     def take_action_with_gpt4(self, user, tweets, actions_today):
         # Use GPT-4 to generate the next action
         prompt = self.construct_prompt(user, tweets, actions_today)
