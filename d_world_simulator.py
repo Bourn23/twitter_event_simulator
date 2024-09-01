@@ -104,7 +104,9 @@ class WorldModel:
         users_by_type = {'org': [], 'core': [], 'basic': []}
 
         # Separate users by type for parallel processing
-        for user in self.graph.nodes():
+        list_nodes = list(self.graph.nodes())
+        random.shuffle(list_nodes)
+        for user in list_nodes:
             user_type = self.users_role[user]
             users_by_type[user_type].append(user)
 
@@ -128,25 +130,25 @@ class WorldModel:
                 if action_info[0]:  # Only process if there's an action
                     self.process_action(user, action_info)
 
-    def process_users_batched(self, users):
-        batched_nodes = []
-        batched_edges = []
-        batched_updates = []
+    # def process_users_batched(self, users):
+    #     batched_nodes = []
+    #     batched_edges = []
+    #     batched_updates = []
 
-        for user in users:
-            if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
-                recent_tweets = self.get_recent_tweets_from_graph(user)
-                action_info = self.take_action(user, recent_tweets)
-                if action_info[0]: # Only process if there's an action
-                    # self.process_action(user, action_info)
-                    # Collect the updates in batches
-                    new_nodes, new_edges, new_updates = self.process_action_batched(user, action_info, collect_only=True)
-                    batched_nodes.extend(new_nodes)
-                    batched_edges.extend(new_edges)
-                    batched_updates.extend(new_updates)
+    #     for user in users:
+    #         if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+    #             recent_tweets = self.get_recent_tweets_from_graph(user)
+    #             action_info = self.take_action(user, recent_tweets)
+    #             if action_info[0]: # Only process if there's an action
+    #                 # self.process_action(user, action_info)
+    #                 # Collect the updates in batches
+    #                 new_nodes, new_edges, new_updates = self.process_action_batched(user, action_info, collect_only=True)
+    #                 batched_nodes.extend(new_nodes)
+    #                 batched_edges.extend(new_edges)
+    #                 batched_updates.extend(new_updates)
         
-        # Apply all updates in a batch
-        self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
+    #     # Apply all updates in a batch
+    #     self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
 
     def get_tweets_for_user(self, user):
         connected_nodes = list(self.graph.neighbors(user))
@@ -180,79 +182,80 @@ class WorldModel:
         
         return user_bio.get(property)
 
-    def process_action_batched(self, user, action_info, collect_only=False):
-        action, target_post_id = action_info
-        new_post_id = len(self.posts_graph.nodes) + 1
+    # def process_action_batched(self, user, action_info, collect_only=False):
+    #     action, target_post_id = action_info
+    #     new_post_id = len(self.posts_graph.nodes) + 1
 
-        batched_nodes = []
-        batched_edges = []
-        batched_updates = []
+    #     batched_nodes = []
+    #     batched_edges = []
+    #     batched_updates = []
 
-        if action == 'post':
-            new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
-            batched_nodes.append((new_post_id, {'content': new_post, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
-            batched_updates.append(("tweet_history", user, new_post_id))
+    #     if action == 'post':
+    #         new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
+    #         batched_nodes.append((new_post_id, {'content': new_post, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+    #         batched_updates.append(("tweet_history", user, new_post_id))
 
-        elif action == 'post_url':
-            new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
-            batched_nodes.append((new_post_id, {'content': new_post, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
-            batched_updates.append(("tweet_history", user, new_post_id))
+    #     elif action == 'post_url':
+    #         new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
+    #         batched_nodes.append((new_post_id, {'content': new_post, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+    #         batched_updates.append(("tweet_history", user, new_post_id))
 
-        elif action == 'like' and target_post_id:
-            batched_updates.append(("like", target_post_id, user))
+    #     elif action == 'like' and target_post_id:
+    #         batched_updates.append(("like", target_post_id, user))
         
-        elif action == 'retweet' and target_post_id:
-            target_post_data = self.posts_graph.nodes[target_post_id]
-            new_content = f"RT: {target_post_data['content']}"
-            retweeted_post_id = len(self.posts_graph.nodes) + 1 # new id for retweeted post
-            batched_nodes.append((retweeted_post_id, {'content': new_content, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
-            batched_edges.append((retweeted_post_id, target_post_id, {'interaction': 'retweet', 'timestamp': self.current_time}))
-            batched_updates.append(("tweet_history", user, retweeted_post_id))
+    #     elif action == 'retweet' and target_post_id:
+    #         target_post_data = self.posts_graph.nodes[target_post_id]
+    #         new_content = f"RT: {target_post_data['content']}"
+    #         retweeted_post_id = len(self.posts_graph.nodes) + 1 # new id for retweeted post
+    #         batched_nodes.append((retweeted_post_id, {'content': new_content, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+    #         batched_edges.append((retweeted_post_id, target_post_id, {'interaction': 'retweet', 'timestamp': self.current_time}))
+    #         batched_updates.append(("tweet_history", user, retweeted_post_id))
         
-        elif action == 'reply' and target_post_id:
-            target_post_data = self.posts_graph.nodes[target_post_id]
-            reply_content = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: Interesting!"
-            reply_post_id = len(self.posts_graph.nodes) + 1  # New ID for reply post
-            batched_nodes.append((reply_post_id, {'content': reply_content, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
-            batched_edges.append((reply_post_id, target_post_id, {'interaction': 'reply', 'timestamp': self.current_time}))
-            batched_updates.append(("tweet_history", user, reply_post_id))
-            batched_updates.append(("add_reply", target_post_id, reply_post_id))
+    #     elif action == 'reply' and target_post_id:
+    #         target_post_data = self.posts_graph.nodes[target_post_id]
+    #         reply_content = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: Interesting!"
+    #         reply_post_id = len(self.posts_graph.nodes) + 1  # New ID for reply post
+    #         batched_nodes.append((reply_post_id, {'content': reply_content, 'owner': user, 'timestamp': self.current_time, 'likes': 0, 'retweets': 0, 'replies': []}))
+    #         batched_edges.append((reply_post_id, target_post_id, {'interaction': 'reply', 'timestamp': self.current_time}))
+    #         batched_updates.append(("tweet_history", user, reply_post_id))
+    #         batched_updates.append(("add_reply", target_post_id, reply_post_id))
 
-        if collect_only:
-            return batched_nodes, batched_edges, batched_updates
-        else:
-            # Apply batched updates to the graph
-            self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
+    #     if collect_only:
+    #         return batched_nodes, batched_edges, batched_updates
+    #     else:
+    #         # Apply batched updates to the graph
+    #         self.apply_batched_updates(batched_nodes, batched_edges, batched_updates)
 
-    def apply_batched_updates(self, batched_nodes, batched_edges, batched_updates):
-        # Add all nodes in a batch
-        self.posts_graph.add_nodes_from(batched_nodes)
+    # def apply_batched_updates(self, batched_nodes, batched_edges, batched_updates):
+    #     # Add all nodes in a batch
+    #     self.posts_graph.add_nodes_from(batched_nodes)
 
-        # Add all edges in a batch
-        self.posts_graph.add_edges_from(batched_edges)
+    #     # Add all edges in a batch
+    #     self.posts_graph.add_edges_from(batched_edges)
 
-        # Apply all updates
-        for update in batched_updates:
-            if update[0] == 'tweet_history':
-                self.add_to_tweet_history(update[1], update[2])
-            elif update[0] == 'like':
-                self.posts_graph.nodes[update[1]]['likes'] += 1
-            elif update[0] == 'add_reply':
-                self.posts_graph.nodes[update[1]]['replies'].append(update[2])
+    #     # Apply all updates
+    #     for update in batched_updates:
+    #         if update[0] == 'tweet_history':
+    #             self.add_to_tweet_history(update[1], update[2])
+    #         elif update[0] == 'like':
+    #             self.posts_graph.nodes[update[1]]['likes'] += 1
+    #         elif update[0] == 'add_reply':
+    #             self.posts_graph.nodes[update[1]]['replies'].append(update[2])
 
+    ## adds to the tweet history of the user and the tweets graph
     def process_action(self, user, action_info):
         action, target_post_id = action_info
-        new_post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
+        post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
 
         if action == 'post':
             new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
-            self.posts_graph.add_node(new_post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.add_to_tweet_history(user, new_post_id)
+            self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, post_id)
 
         elif action == 'post_url':
             new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
-            self.posts_graph.add_node(new_post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.add_to_tweet_history(user, new_post_id)
+            self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, post_id)
 
         elif action == 'like' and target_post_id:
             # Increment the like count in the post node
@@ -262,22 +265,20 @@ class WorldModel:
 
         elif action == 'retweet' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
-            new_content = f"RT: {target_post_data['content']}"
-            retweeted_post_id = len(self.posts_graph.nodes) + 1  # New ID for retweeted post
-            self.posts_graph.add_node(retweeted_post_id, content=new_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.add_to_tweet_history(user, retweeted_post_id)
+            rt_content = f"RT: {target_post_data['content']}"
+            self.posts_graph.add_node(post_id, content=rt_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.add_to_tweet_history(user, post_id)
             # Add an edge representing the 'retweet' interaction
-            self.posts_graph.add_edge(retweeted_post_id, target_post_id, interaction='retweet', timestamp=self.current_time)
+            self.posts_graph.add_edge(post_id, target_post_id, interaction='retweet', timestamp=self.current_time)
 
         elif action == 'reply' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
             reply_content = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: Interesting!"
-            reply_post_id = len(self.posts_graph.nodes) + 1  # New ID for reply post
-            self.posts_graph.add_node(reply_post_id, content=reply_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.posts_graph.add_edge(reply_post_id, target_post_id, interaction='reply', timestamp=self.current_time)
-            self.add_to_tweet_history(user, reply_post_id)
+            self.posts_graph.add_node(post_id, content=reply_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.posts_graph.add_edge(post_id, target_post_id, interaction='reply', timestamp=self.current_time)
             # Update the original post with the reply reference
-            self.posts_graph.nodes[target_post_id]['replies'].append(reply_post_id)
+            self.posts_graph.nodes[target_post_id]['replies'].append(post_id)
+            self.add_to_tweet_history(user, post_id)
 
     def take_action(self, user, tweets):
         current_date = self.current_time.strftime('%Y-%m-%d')
@@ -316,12 +317,13 @@ class WorldModel:
     def construct_prompt(self, user, tweets, actions_today):
         prompt = (
             f"User role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
+            f"User background and preferences: {self.get_user_property(user, 'background')}.\n"
             f"Current time: {self.current_time}.\n"
             f"Available actions for today: {actions_today}.\n"
             f"Recent tweets in (tweet_id, tweet) format:\n <tweets> {[(tweet_id, self.posts_graph.nodes[tweet_id]['content']) for tweet_id in tweets]}.\n </tweets>\n"
             f"Considering the user's preferences, bio, time of day, and available actions, "
             f"choose the most reasonable action the user should take next (post, post_url, retweet, reply, like)?"
-            f"ALWAYS return answer in the format of [action, selected_tweet]." # might need to provide more context for the model to understand the task
+            "ONLY AND ALWAYS return answer in the format of [{action}, {selected_tweet_id}]." # might need to provide more context for the model to understand the task
         )
         return prompt
     
@@ -333,23 +335,23 @@ class WorldModel:
         gpt4_action = response['choices'][0]['message']['content'].strip().lower()
         
         # Ensure the action is within the available actions
-        if 'post_url' in gpt4_action and actions_today.get('URLs', 0) > 0:
+        if 'post_url' in gpt4_action and actions_today.get('post_url', 0) > 0:
             action = 'post_url'
-            actions_today['URLs'] -= 1
-            actions_today['Tweets'] -= 1
-        elif 'post' in gpt4_action and actions_today.get('Tweets', 0) > 0:
+            actions_today['post_url'] -= 1
+            actions_today['post'] -= 1
+        elif 'post' in gpt4_action and actions_today.get('post', 0) > 0:
             action = 'post'
-            actions_today['Tweets'] -= 1
-            actions_today['URLs'] -= 1 # Assume that a tweet with a URL is also a tweet
-        elif 'retweet' in gpt4_action and actions_today.get('Retweets', 0) > 0:
+            actions_today['post'] -= 1
+            actions_today['post_url'] -= 1 # Assume that a tweet with a URL is also a tweet
+        elif 'retweet' in gpt4_action and actions_today.get('retweet', 0) > 0:
             action = 'retweet'
-            actions_today['Retweets'] -= 1
-        elif 'reply' in gpt4_action and actions_today.get('Replies', 0) > 0:
+            actions_today['retweet'] -= 1
+        elif 'reply' in gpt4_action and actions_today.get('reply', 0) > 0:
             action = 'reply'
-            actions_today['Replies'] -= 1
-        elif 'like' in gpt4_action and actions_today.get('Likes', 0) > 0:
+            actions_today['reply'] -= 1
+        elif 'like' in gpt4_action and actions_today.get('like', 0) > 0:
             action = 'like'
-            actions_today['Likes'] -= 1
+            actions_today['like'] -= 1
 
         # Select a tweet for retweet, reply, or like if needed
         if action in ['retweet', 'reply', 'like']:
@@ -371,7 +373,9 @@ class WorldModel:
             time_of_day_weight = 0.8
         
         # Adjust probability based on other contextual factors (e.g., user engagement)
-        engagement_factor = 1.0  # Placeholder for any dynamic adjustments based on engagement
+        engagement_factor = self.calculate_engagement_factor()
+
+
         action_probability = base_action_probability * time_of_day_weight * engagement_factor
         
         # Decide whether to take an action
@@ -385,6 +389,18 @@ class WorldModel:
         
         return action, selected_tweet
     
+    def calculate_engagement_factor(self):
+        """Calculate engagement factor based on the proximity to the protest day."""
+        protest_day = datetime(2040, 6, 1)
+        days_until_protest = (protest_day - self.current_time).days
+        
+        if days_until_protest > 0:
+            engagement_factor = 1 + 0.2 * max(0, days_until_protest - 30)
+        else:
+            engagement_factor = 1  # No additional engagement boost after the protest day
+        
+        return engagement_factor
+    
     def select_best_action(self, actions_today, user_context):
         weights = {
             'like': 1.0,
@@ -395,12 +411,12 @@ class WorldModel:
         }
 
         # Adjust weights based on context
-        # if user_context.get('time_of_day') == 'morning':
-        #     weights['post'] *= 1.2
-        #     weights['post_url'] *= 1.1
-        # elif user_context.get('time_of_day') == 'evening':
-        #     weights['like'] *= 1.3
-        #     weights['reply'] *= 1.2
+        if user_context.get('time_of_day') == 'morning':
+            weights['post'] *= 1.2
+            weights['post_url'] *= 1.1
+        elif user_context.get('time_of_day') == 'evening':
+            weights['like'] *= 1.3
+            weights['reply'] *= 1.2
 
         # Calculate the scores
         action_scores = {action: count * weights[action] for action, count in actions_today.items() if count > 0}
@@ -603,7 +619,7 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
 
 if __name__ == "__main__":
     # Run the simulation
-    network_path = 'social_network.gml'
+    network_path = 'social_network_small_50.gml'
     core_biography_path = 'Core_characters_fixed_ids.json'
     basic_biography_path = 'basic_characters_fixed_ids.json'
     org_biography_path = 'total_organizations_fixed_ids.json'

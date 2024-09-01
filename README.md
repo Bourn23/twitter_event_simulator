@@ -43,7 +43,11 @@
 [x] generate organization and core users (bend values)
 
 
---> how to get to show all tweets (especially tweets with better visibility) to the user?
---> times need to be adjusted so that they are all not happening at the same time. we can shuffle the timestamp of interactions to anytime after the original tweet's timestamp
---> why no one likes?
---> 
+--> how to get to show all tweets (especially tweets with better visibility) to the user? --> we used a weighting factor.
+
+--> why no one retweets?
+--> times need to be adjusted so that not all interactions with the content are all happening at the same time. we can shuffle the timestamp of interactions to anytime after the original tweet's timestamp
+--> Tweet styles: content (text, text and emoji) - make sure the tweet length remains within the bounds of twitter.
+--> promote hashtag use [ do we have a collection of hashtags? ]
+--> we don't want user to continually send new posts (so make sure previous action is also considered) -- especially tendency to post decrease while for active engagement increases
+--> there are times where a user is active and then deactive. during protest we want most of our users to be active. especially we want them to organize/coordinate the protest information.
