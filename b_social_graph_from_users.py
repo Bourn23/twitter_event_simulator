@@ -26,9 +26,9 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
     G = nx.DiGraph()  # Use a directed graph
 
     # Step 1: Load only the required number of users
-    basic_users_data = load_users('basic_users.json', num_basic_users)
-    core_users_data = load_users('core_users.json', num_core_users)
-    org_users_data = load_users('organization_users.json', num_org_users)
+    basic_users_data = load_users('basic_characters_fixed_ids.json', num_basic_users)
+    core_users_data = load_users('Core_characters_fixed_ids.json', num_core_users)
+    org_users_data = load_users('total_organizations_fixed_ids.json', num_org_users)
 
     # Assign user IDs to nodes
     basic_users_ids = [user['aesop_id'] for user in basic_users_data]
@@ -56,9 +56,16 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
             G.add_edge(org, all_nodes[user])
 
     # Step 3: Core (Influential) Users based on following/followers ratio
+    
     for core in core_users_ids:
-        followers_count = int(np.random.pareto(a=2.) * 8) + 1  # Slightly reduce followers count
-        following_count = int(followers_count * random.uniform(0.02, 0.04))  # Slightly adjust following count
+        # followers_count = int(np.random.pareto(a=2.8) * (num_basic_users + num_org_users) * 0.65) + 1  # Slightly reduce followers count
+        # change followers_count distribution to normal
+        # followers_count = int(np.random.normal(loc=200, scale=46)) + 1
+        # change followers_count distribution to beta
+        followers_count = int(np.random.beta(a=3, b=5) * (num_basic_users + num_org_users) * 0.75) + 1
+        following_count = int(followers_count * random.uniform(1.5, 0.2))  # Slightly adjust following count
+
+        print("core:", core, "followers_count:", followers_count, "following_count:", following_count)
 
         # Create incoming edges (followers)
         for _ in range(followers_count):
@@ -70,12 +77,16 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
         for _ in range(following_count):
             following = random.choice(list(G.nodes()))
             if following != core and not G.has_edge(core, following):
-                G.add_edge(all_nodes[core], all_nodes[following])
+                G.add_edge(core, following)
 
     # Step 4: Basic Users based on following/followers ratio
     for basic in basic_users_ids:
-        followers_count = int(np.random.exponential(scale=0.8)) + 1  # Reduce followers count
+        # followers_count = int(np.random.exponential(scale=6.8)) + 1  # Reduce followers count
+        # we will want to have users that are connected up to around 250 users and down to 25 users, so we'll use another distribution than exponential
+        followers_count = int(np.random.beta(a=3, b=2) * (num_core_users + num_org_users) * 0.65) + 1
         following_count = int(followers_count * random.uniform(0.1, 1.2))  # Adjust following count
+
+        print("basic:", basic, "followers_count:", followers_count, "following_count:", following_count)
 
         # Create incoming edges (followers)
         for _ in range(followers_count):
@@ -110,9 +121,9 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
     return G
 
 # Parameters for the network
-num_basic_users = 25
-num_core_users = 5
-num_org_users = 5
+num_basic_users = 373
+num_core_users = 100
+num_org_users = 27
 
 # Generate the network with user IDs
 social_graph = generate_social_graph_with_users(num_basic_users, num_core_users, num_org_users)
@@ -208,5 +219,5 @@ print(comparison.to_string(index=False))
 
 
 ## Save the network
-nx.write_gml(social_graph, "social_network_small.gml")
-print("Network saved as social_network_small.gml", "with n_nodes:", len(social_graph.nodes()), "and n_edges:", len(social_graph.edges()))
+nx.write_gml(social_graph, "social_network.gml")
+print("Network saved as social_network.gml", "with n_nodes:", len(social_graph.nodes()), "and n_edges:", len(social_graph.edges()))

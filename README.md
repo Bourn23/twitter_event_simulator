@@ -40,3 +40,10 @@
 [x] fix the users names
 [x] connect the worldmodel to LLM to either make decisions / or just tweets and retweets
 [x] the LLM should use the org and core users extra information [such as valence, their BEND, and positions] when simulating them
+[x] generate organization and core users (bend values)
+
+
+--> how to get to show all tweets (especially tweets with better visibility) to the user?
+--> times need to be adjusted so that they are all not happening at the same time. we can shuffle the timestamp of interactions to anytime after the original tweet's timestamp
+--> why no one likes?
+--> 

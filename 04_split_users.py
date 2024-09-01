@@ -4,6 +4,18 @@ import random
 with open('characters_fixed_ids.json', 'r') as f:
     users_data = json.load(f)
 
+with open('Characters_core.json', 'r') as f:
+    core_users = json.load(f)
+
+with open('Characters_basic.json', 'r') as f:
+    basic_users = json.load(f)
+
+with open('bad_org.json', 'r') as f:
+    organization_users = json.load(f)
+
+# mix users_data and users_data_2
+users_data += users_data_2
+
 # Initialize lists for core, basic, and organization users
 core_users = []
 basic_users = []
