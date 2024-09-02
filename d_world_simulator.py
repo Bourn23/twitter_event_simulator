@@ -10,8 +10,8 @@ from textblob import TextBlob
 from dotenv import load_dotenv
 
 load_dotenv()
-# openai_api_key = os.getenv("OPENAI_API_KEY")
-openai_api_key = "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"
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
 
 
 priority_weights = {
