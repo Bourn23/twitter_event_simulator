@@ -10,8 +10,7 @@ from textblob import TextBlob
 from dotenv import load_dotenv
 
 load_dotenv()
-openai_api_key_1 = os.getenv("OPENAI_API_KEY")
-openai_api_key_2 = os.getenv("OPENAI_API_KEY2")
+openai_api_key = "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"
 
 
 
@@ -20,12 +19,6 @@ priority_weights = {
     'core': 2,
     'basic': 1
 }
-
-# 2040-05-30: 1752 tweets (URLs: 898, Retweets: 188, Replies: 558)
-# 2040-05-31: 2161 tweets (URLs: 1097, Retweets: 213, Replies: 705)
-# 2040-06-01: 3185 tweets (URLs: 1587, Retweets: 329, Replies: 1055)
-# 2040-06-02: 2118 tweets (URLs: 1088, Retweets: 195, Replies: 674)
-# 2040-06-03: 1797 tweets (URLs: 934, Retweets: 168, Replies: 605)
 
 predetermined_tweets = {
     '2040-05-30': {
@@ -36,24 +29,24 @@ predetermined_tweets = {
         'like': 2800,
     },
     '2040-05-31': {
-        'post': 5354-2197,
-        'post_url': 2197,
-        'retweet': 980,
+        'post': 2354-1197,
+        'post_url': 1197,
+        'retweet': 227,
         'reply': 732,
         'like': 19000,
     },
     '2040-06-01': {
-        'post': 8500-4350,
+        'post': 3495-1771,
         'post_url': 1771,
-        'retweet': 1050,
+        'retweet': 351,
         'reply': 1109,
         'like': 16520
     },
     '2040-06-02': {
-        'post': 4274-2213,
-        'post_url': 2213,
-        'retweet': 1088,
-        'reply': 1712,
+        'post': 2274-1213,
+        'post_url': 1213,
+        'retweet': 188,
+        'reply': 712,
         'like': 9200
     },
     '2040-06-03': {
@@ -86,10 +79,6 @@ good_hashtags = {
     "#EcoWarriorsUnite",
     "#GreenAgainstHeli",
     "#ArcticPreservation",
-    "#Artic",
-    "#ArkhangelskOblast",
-    "#EcoHellTours",
-    "#GreenerEco",
 }
 
 bad_hashtags = {
@@ -113,10 +102,6 @@ bad_hashtags = {
     "#ArcticGateway",
     "#AdventureAwaits",
     "#HeliTourSupporters",
-    "#Artic",
-    "#ArkhangelskOblast",
-    "#EcoHellTours",
-    "#GreenerEco",
 }
 class WorldModel:
     def __init__(self, network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
@@ -131,24 +116,11 @@ class WorldModel:
         self.users_role = self.initialize_users_db()
         self.remaining_actions = predetermined_tweets
         self.posts_graph = nx.MultiDiGraph()  # Initialize the posts graph from the start
-        # try loading the post_graph from the file
-        # self.posts_graph = nx.read_gml('posts_graph_2040-05-30 16:00:00.gml')
-        self.client = openai.OpenAI(api_key = openai_api_key_1)
-        self.client2 = openai.OpenAI(api_key = openai_api_key_2)
-        self.active_client = self.client
-        self.who_active_client = 'client1'
+        self.client = openai.OpenAI(api_key = openai_api_key)
 
         self.basic_user_properties = ['name', 'type', 'title', 'age', 'gender', 'race', 'nationality', 'bio', 'tweets']#, "top_topics", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
         self.core_user_properties = ['name', 'type', 'title', 'leads', 'age', 'gender', 'race', 'nationality', 'bio', 'tweets']#, "top_topics", "num_mentions_per_tweet", "accounts_to_mention", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
         self.org_user_properties = ['name', 'type', 'title', 'leads', 'age', 'gender', 'race', 'nationality', 'bio', 'tweets', "top_topics", "num_mentions_per_tweet", "accounts_to_mention", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
-
-    def switch_client(self):
-        if self.who_active_client == 'client1':
-            self.active_client = self.client2
-            self.who_active_client = 'client2'
-        else:
-            self.active_client = self.client
-            self.who_active_client = 'client1'
 
     def initialize_users_db(self): 
         user_types = {}
@@ -198,7 +170,7 @@ class WorldModel:
             users_by_type[user_type].append(user)
 
         # Process each user type in parallel
-        max_workers = 5
+        max_workers = 4
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for user_type in ['org', 'core', 'basic']:
@@ -211,21 +183,14 @@ class WorldModel:
         self.current_time += timedelta(minutes=15)
 
     def process_users(self, users):
-        # sleep 10 s with 50% chance, 20s with 10% chance, and 5s with 40% chance
-        time.sleep(random.choice([10, 20, 5, 5, 5, 5, 5, 5, 5, 5]))
+        
         for user in users:
-            join_time = self.get_user_property(user, 'join_time')
-            leave_time = self.get_user_property(user, 'leave_time')
-            if join_time is not None or leave_time is not None:
-                # basic users have a join_time and leave_time: "join_time": "2024-05-30T08:23", "leave_time": "2024-06-03T12:42" if the current time is not within the join_time and leave_time, skip the user
-                if self.current_time < datetime.strptime(join_time, '%Y-%m-%dT%H:%M') or self.current_time > datetime.strptime(leave_time, '%Y-%m-%dT%H:%M'):
-                    continue # skip the user because they are not active at this time
             if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
                 recent_tweets = self.get_recent_tweets_from_graph(user)
                 action_info = self.take_action(user, recent_tweets)
                 if action_info[0]:  # Only process if there's an action
                     self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
-        
+
     def get_tweets_for_user(self, user):
         connected_nodes = list(self.graph.neighbors(user))
         tweets = []
@@ -256,7 +221,7 @@ class WorldModel:
         if user_bio is None:
             raise ValueError(f"User with ID {user} not found in the biography data.")
         
-        return user_bio.get(property, None)
+        return user_bio.get(property)
 
     ## adds to the tweet history of the user and the tweets graph
     def process_action(self, user, action_info, user_polarity, user_subjectivity):
@@ -365,19 +330,12 @@ class WorldModel:
     def generate_post(self, user, action, user_polarity, user_subjectivity, original_tweet=None, hashtags=None, tweet_history=None):
         # Use GPT-4 to generate the next action
         prompt = self.construct_prompt(user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history)
-        # 20% chance of choosing gpt-4o instead of gpt-4o-mini
-        if random.random() < 0.2:
-            model_name = "gpt-4o"
-        else:
-            model_name = "gpt-4o-mini"
+        # print("prepared the prompt", prompt)
         try:
             response = self.client.chat.completions.create(
-                model=model_name,                
+                model="gpt-4o-mini",                
                 messages = [
-                {"role": "system", "content": """Given the user's past behavior and intents, generate a diverse set of tweets that converge on their typical style and content. 
-                The generated tweets should mimic the user's behavior as closely as possible, reflecting their interests, tone, and typical language use. 
-                Consider the user's past tweets, their commonly used phrases, the topics they often discuss, and the sentiment of their messages. 
-                Remember, the goal is not to simply replicate the user's past tweets, but to create new content that feels authentically like something the user would post.
+                {"role": "system", "content": """You are an advanced social media simulator. Your role is to use your best judgement to generate ONE tweet for the given user. AVOID repetitive tweets, match the tone with the polarity level, more negative polarity levels leads to stronger opposing views to the situation and vice versa. The tweet must contextually match the scenario below and consistent (tone, style, length, etc.) with the user's tweet history.
                  <scenario>
                 In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land. This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. Grass Roots Environmental Organization: The environmental group "If Not Now, Then When?" (INNW) comprises a widespread network of activists around the globe, with significant concentrations in Australia, the United States (particularly the Pacific Northwest), Ireland, and the UK. Kaiara Willowbank, a prominent grassroots blogger for INNW, recently published a blog post addressing the issue at hand. In her post, Willowbank criticizes the Norwegian Government and its President for their silence on the matter. She argues that in such challenging times, it is crucial for leaders and nations to adopt a firmer stance in dealing with companies and countries, like Russia and Heliexpress LTD, that seek to exploit situations to their advantage.
                 Grass Roots Primary Source: "In these critical moments, silence is not just absence—it's acquiescence. It's essential that our world leaders, including the Norwegian Government, rise to the challenge and confront those who view our environmental crises as opportunities for exploitation. Russia and Heliexpress LTD are just the tip of the iceberg.
@@ -405,84 +363,14 @@ class WorldModel:
                 {"role": "user", "content": prompt}
                 ],
                 max_tokens=150,
-                # random temeprature between 0.4 and 0.9
-                temperature=random.uniform(0.4, 0.9),
+                temperature=0.7
             )
             response_post_processed = {
                 "response": response.choices[0].message.content,
             }
         except Exception as e:
-            # switch clients
-            self.switch_client()
-            try:
-
-                response = self.client.chat.completions.create(
-                model=model_name,                
-                messages = [
-                {"role": "system", "content": """Given the user's past behavior and intents, generate a diverse set of tweets that converge on their typical style and content. 
-                The generated tweets should mimic the user's behavior as closely as possible, reflecting their interests, tone, and typical language use. 
-                Consider the user's past tweets, their commonly used phrases, the topics they often discuss, and the sentiment of their messages. 
-                Remember, the goal is not to simply replicate the user's past tweets, but to create new content that feels authentically like something the user would post.
-                <scenario>
-                In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land. This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. Grass Roots Environmental Organization: The environmental group "If Not Now, Then When?" (INNW) comprises a widespread network of activists around the globe, with significant concentrations in Australia, the United States (particularly the Pacific Northwest), Ireland, and the UK. Kaiara Willowbank, a prominent grassroots blogger for INNW, recently published a blog post addressing the issue at hand. In her post, Willowbank criticizes the Norwegian Government and its President for their silence on the matter. She argues that in such challenging times, it is crucial for leaders and nations to adopt a firmer stance in dealing with companies and countries, like Russia and Heliexpress LTD, that seek to exploit situations to their advantage.
-                Grass Roots Primary Source: "In these critical moments, silence is not just absence—it's acquiescence. It's essential that our world leaders, including the Norwegian Government, rise to the challenge and confront those who view our environmental crises as opportunities for exploitation. Russia and Heliexpress LTD are just the tip of the iceberg.
-                We need action, commitment, and transparency, now more than ever. Hold Norway to task, #ShameOnNorway," stated Kaiara Willowbank, a vocal advocate and blogger for "If Not Now, Then When?". International Environmental Organization: EcoVanguard Solutions, an international NGO, focuses on environmental issues in the Arctic Sea region, particularly pollution, due to the area's increased activity over recent years.
-                Anya Chatterjee-Smith, the Chief Communications Officer of their Arctic Sea Division, has publicly criticized Heliexpress LTD for not being transparent about how they plan to mitigate their impact on endangered species populations. Additionally, she has openly condemned Russia and Igor Petrovich Kuznetsov, the Governor of Arkhangelsk Oblast, for their disregard for the region's escalating environmental challenges, specifically pointing out their lack of concern for this pressing issue.
-                International Environmental Organization, Primary Source: "As the Chief Communications Officer of EcoVanguard Solutions' Arctic Sea Division, I must express our profound disappointment in the lack of transparency and concern from Heliexpress LTD, the Russian government, and particularly Governor Igor Petrovich Kuznetsov of Arkhangelsk Oblast. Their disregard for the critical environmental issues facing the Arctic Sea region, especially the threat to endangered species, is unacceptable.
-                Immediate action and open dialogue are essential to address these pressing challenges effectively. We need to work together to make sure our children and grandchildren have A Greener Tomorrow™" – Public Statement from Anya Chatterjee-Smith, CCO of EcoVanguard Solutions Arctic Sea Division. Environmental Economist Professor: Rowan Emerson, a socio-ecologist and environmental economist, recently spoke on Planetwise Broadcast Radio (PBR), emphasizing that EcoVanguard Solutions should collaborate with grassroots organizations like "If Not Now, Then When?" (INNW).
-                He highlighted that although INNW may lack the funding of larger organizations, they have a broader base of support and can mobilize more voices. Emerson pointed out that EcoVanguard's criticism of the Governor of Arkhangelsk Oblast and the President of Heliexpress, while excluding the Norwegian government, indicates a disconnect from the wider environmental movement—a perspective clearly demonstrated by INNW. Environmental Economist Professor, Primary Source: "Rowan Emerson criticizes EcoVanguard Solutions for their narrow focus on figures like the President of Heliexpress and Governor Igor Kuznetsov, overlooking the potential of grassroots mobilization through 'If Not Now, Then When?' and the need to engage with the Norwegian government and its president.
-                'True environmental progress demands that we harness grassroots energy and direct our advocacy towards all pivotal actors, including those at the highest levels of government. By sidelining groups like INNW and not mobilizing against broader targets such as Norway's leadership, we miss critical opportunities for impactful change,' Emerson argues." Yet To Comment: The following organizations and individuals have yet to comment, and therefore do not have any primary source information available. Norway Norwegian Ministry of Foreign Affairs Norwegian President, Ingrid Johansen Russia Ministry of Foreign Affairs of the Russian Federation Governor of Arkhangelsk Oblast, Petrovich Kuznetsov Organizations Heliexpress LTD People Member of Environmental Group "If Not Now, Then When?" Name: Kaiara Willowbank Username: @KaiaraNoBrakesWillow Chief Communications Officer (CCO) of INGO Environmental Organization "EcoVanguard Solutions" Name: Anya Chatterjee-Smith Username: @AnyaEVS Social Movement scholar from the United States (Socio-ecologist and Economics Professor from a small liberal arts college outside of Boston, MA) Name: Rowan Emerson Username: @RowanEmersonPhD Governor of Arkhangelsk Oblast, Russia. Name: Petrovich Kuznetsov Username: @Kuznetsov_RF Norwegian President Name: Ingrid Johansen Username: @IngridJohansen Organizations: "If Not Now, Then When," Grassroots Environmental Group Usernames: @innw & @innw_US Hashtags Used: #INNW #IfNotNowThenWhen #ShameOnNorway "EcoVanguard Solutions," International Non-Governmental Environmental Organization Username: @agreenertomorrowEVS Hashtags: #agreenertomorrow #EcoVanguardSolutions #ecomovement #ProtectNSReserve "Heliexpress LTD," Russian Helicopter Tour Company with new tours from Arkhangelsk Oblast passing over Kong Karls Land.
-                Username: @heliexpressLTD Hashtag: #heliexpresstours #helitours_RU Norwegian Ministry of Foreign Affairs Username: @NorwayMFA Ministry of Foreign Affairs of the Russian Federation Username: @MFA_Russia General Use Hashtags: #Artic #ArkhangelskOblast #EcoHellTours #GreenerEco
-                <begin summary scenario> 
-                "scenario_summary": "In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land.
-                This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. ", "scenario_description": "In the scenario known as Melted Caps, which takes place from May 30th to June 3rd, 2040, the melting of Arctic sea caps has caused significant changes in Northern Europe.
-                This has led to increased maritime and aerial traffic to Arkhangelsk Oblast, a region impacted by the melting ice. Addressing this surge in traffic and capitalizing on the new opportunities, Heliexpress, a leading helicopter tour company, has announced a series of tours from Arkhangelsk Oblast. These tours offer breathtaking routes over Kong Karls Land, attracting thrill-seekers and nature enthusiasts alike. The company's decision to expand its operations in the region reflects the growing interest in Arctic tourism and the unique experiences it offers. However, there are concerns raised by environmentalists regarding the impact of this increased traffic on the wildlife and natural habitats in the Nordaust-Svalbard Nature Reserve.
-                With the melting ice, polar bears, walruses, and other marine animals already facing challenges to their survival, the rise in helicopter flights could further disturb their fragile ecosystems. Additionally, the Nordaust-Svalbard Nature Reserve, formerly a polar desert, has recently seen an unexpected growth of deciduous plants. This new vegetation signals a significant ecological shift, and environmentalists fear that helicopter landings in the region could cause damage to this burgeoning forestation. To express their concerns and draw attention to the potential harm posed by Heliexpress and other aircraft, environmentalists have organized a large-scale protest against the company. This protest, scheduled for June 1st, 2040, aims to raise awareness about the importance of preserving the delicate balance in the Nordaust-Svalbard Nature Reserve.
-                It is expected to attract participants and supporters from various corners, including local communities, conservation organizations, and concerned citizens. Amidst these events, the scenario highlights the ongoing impacts of climate change and the urgent need for sustainable practices in the face of a rapidly changing environment. It underscores the potential conflict between economic opportunities and ecological preservation, as the demand for thrilling experiences clashes with the imperative to protect vulnerable species and habitats. The outcome of this scenario will depend not only on the actions taken by Heliexpress and the protesters but also on the response of the relevant governments and global community to address the broader issues of climate change and its consequences." "scenario_name": "Melted_Caps", "date_range_start": "2040-05-30", "date_range_end": "2040-06-03", "countries_of_interest": [ "Ireland {Republic}", "Norway", "Russian Federation", "United Kingdom", "United States" ],
-                "regions_of_interest": [ "Northern Europe" ],
-                <end summary scenario>
-                </scenario>
-                PAY SPECIAL ATTENTION TO THESE USERS AS THEY SET THE TONE FOR THE MOVEMENTS AND SCENARIO, carefully craft their tweets to match their goals, tones, and styles: 
-                    Governments:
-                    1.Norwegian Ministry of Foreign Affairs
-                    2.Norwegian President, Ingrid Johansen
-                    3.Ministry of Foreign Affairs of the Russian Federation
-                    4.Governor of Arkhangelsk Oblast, Petrovich Kuznetsov
-                    Organization:
-                    1.Heliexpress LTD
-                    People:   
-                    1.Member of Environmental Group "If Not Now, Then When?":
-                    1.1. Name: Kaiara Willowbank, Username: @KaiaraNoBrakesWillow, Chief Communications Officer (CCO) of INGO Environmental Organization "EcoVanguard Solutions"
-                    1.2. Name: Anya Chatterjee-Smith, Username: @AnyaEVS
-                    2.Social Movement scholar from the United States (Socio-ecologist and Economics Professor from a small liberal arts college outside of Boston, MA): 
-                    2.1. Name: Rowan Emerson, Username: @RowanEmersonPhD
-                    3.Governor of Arkhangelsk Oblast, Russia.
-                    3.1.Name: Petrovich Kuznetsov,Username: @Kuznetsov_RF
-                    4.Norwegian President
-                    4.1.Name: Ingrid Johansen,Username: @IngridJohansen
-                    5. Organizations:
-                    5.1. "If Not Now, Then When," Grassroots Environmental Group, Usernames: @innw & @innw_US, Hashtags Used: #INNW #IfNotNowThenWhen #ShameOnNorway
-                    5.2. "EcoVanguard Solutions," International Non-Governmental Environmental Organization, Username: @agreenertomorrowEVS, Hashtags: #agreenertomorrow #EcoVanguardSolutions #ecomovement #ProtectNSReserve
-                    5.3. "Heliexpress LTD," Russian Helicopter Tour Company with new tours from Arkhangelsk Oblast passing over Kong Karls Land.,Username: @heliexpressLTD,Hashtag: #heliexpresstours #helitours_RU
-                    5.4. Norwegian Ministry of Foreign Affairs,Username: @NorwayMFA
-                    5.5. Ministry of Foreign Affairs of the Russian Federation,Username: @MFA_Russia
-
-                Your tweet will be between the <output_format> tags:
-                     if the character's action is to post_url or post ONLY AND ALWAYS return answer in the format of ["{new_tweet}"].
-                     if the character's action is to retweet, or like, return answer in the format of ["{action}", "{tweet_id}"]. NOTE the tweet_id is given in the user's prompt.
-                     if character choose to reply, return answer in the format of ["{tweet_id}", "{new_tweet}"]."""},
-                {"role": "user", "content": prompt}
-                ],
-                max_tokens=150,
-                temperature=random.uniform(0.4, 0.9),
-                )
-                response_post_processed = {
-                    "response": response.choices[0].message.content,
-                }
-
-            except:
-
-                return f"An error occurred: {str(e)}"
+            print("API error in generate_post", e)
+            return f"An error occurred: {str(e)}"
         # print("response_post_processed in generate_post", response_post_processed)
         # response_post_processed = {'response': '["In light of the alarming news about Heliexpress\' helicopter tours threatening the fragile Arctic ecosystem, we must unite to protect our wildlife and natural habitats. It\'s time to say #NoToHeliTours and stand up for our planet! #EcoActionNow"]'}
         # lets update the response_parsed based on the new output format which is based on the action:
@@ -591,14 +479,14 @@ class WorldModel:
     def take_action_for_basic_user(self, user, tweets, actions_today):
          #print("Taking action for basic user")
         # Define a base action probability for basic users
-        base_action_probability = 0.7
+        base_action_probability = 0.3
         
         # Dynamic adjustment based on context (e.g., time of day, user engagement)
         time_of_day_weight = 1.0
         if 6 <= self.current_time.hour < 12:
-            time_of_day_weight = 1.6
+            time_of_day_weight = 1.2
         elif 18 <= self.current_time.hour < 24:
-            time_of_day_weight = 1.4
+            time_of_day_weight = 1.1
         else:
             time_of_day_weight = 0.8
         
@@ -627,9 +515,9 @@ class WorldModel:
         # Dynamic adjustment based on context (e.g., time of day, user engagement)
         time_of_day_weight = 1.0
         if 6 <= self.current_time.hour < 12:
-            time_of_day_weight = 1.5
+            time_of_day_weight = 1.2
         elif 18 <= self.current_time.hour < 24:
-            time_of_day_weight = 1.9
+            time_of_day_weight = 1.1
         else:
             time_of_day_weight = 0.8
         
@@ -843,7 +731,7 @@ class WorldModel:
                 'post_id': node,
                 'content': data.get('content'),
                 'owner': data.get('owner'),
-                'timestamp': data.get('timestamp').isoformat() if isinstance(data.get('timestamp'), datetime) else data.get('timestamp'),
+                'timestamp': data.get('timestamp').isoformat() if data.get('timestamp') else None,
                 'likes': data.get('likes', 0),
                 'retweets': data.get('retweets', 0),
                 'replies': data.get('replies', [])
@@ -857,7 +745,7 @@ class WorldModel:
                 'source_post_id': source,
                 'target_post_id': target,
                 'interaction': data.get('interaction'),
-                'timestamp': data.get('timestamp').isoformat() if isinstance(data.get('timestamp'), datetime) else data.get('timestamp'),
+                'timestamp': data.get('timestamp').isoformat() if data.get('timestamp') else None
             }
             all_interactions.append(interaction_info)
 
@@ -869,24 +757,6 @@ class WorldModel:
 
         with open(filepath, 'w') as file:
             json.dump(save_data, file, indent=4)
-
-        # Convert datetime attributes to strings before saving
-        def convert_datetime_to_string(graph):
-            for node, attr in graph.nodes(data=True):
-                for key, value in attr.items():
-                    if isinstance(value, datetime):
-                        attr[key] = value.isoformat()
-
-            for u, v, attr in graph.edges(data=True):
-                for key, value in attr.items():
-                    if isinstance(value, datetime):
-                        attr[key] = value.isoformat()
-
-        # Convert datetime objects in the graph
-        convert_datetime_to_string(self.posts_graph)
-        
-        # Save the graph to a GML file
-        nx.write_gml(self.posts_graph, f'posts_graph_{self.current_time}-network438.gml')
 
 # Simulation Runner
 def run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
@@ -900,8 +770,7 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
         
         if world.current_time.minute == 0:  # Log every hour
             print(f"Simulation time: {world.current_time}, time elapsed: {time.time() - start_time:.2f} seconds.")
-            world.save_tweets(f'simulation_results_{world.current_time}-parallel-sep2-network438.json')
-
+            world.save_tweets(f'simulation_results_{world.current_time}-parallel-10workers.json')
 
 
     print("Execution time:", time.time() - start_time)
@@ -910,12 +779,12 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
 
 if __name__ == "__main__":
     # Run the simulation
-    network_path = 'social_network_med_438.gml'
+    network_path = 'social_network_small_308.gml'
     core_biography_path = 'sep2_core_characters_fixed_ids.json'
     basic_biography_path = 'sep2_basic_characters_fixed_ids.json'
     org_biography_path = 'sep2_org_characters_fixed_ids.json'
 
     start_date = datetime(2040, 5, 30)
-    end_date = datetime(2040, 6, 4)
+    end_date = datetime(2040, 5, 31)
     final_state = run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     print("Simulation completed.")

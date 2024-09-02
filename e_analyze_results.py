@@ -77,7 +77,7 @@ def analyze_results(filepath):
 
 if __name__ == "__main__":
     # Path to the simulation results file
-    filepath = 'simulation_results_2040-05-30 02:00:00.json'
+    filepath = 'simulation_results_2040-05-30 01:00:00-parallel-sep2-network438.json'
     
     # Analyze the results
     analyze_results(filepath)

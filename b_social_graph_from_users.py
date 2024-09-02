@@ -130,8 +130,8 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
     return G
 
 # Parameters for the network
-num_basic_users = 210
-num_core_users = 70
+num_basic_users = 310
+num_core_users = 100
 num_org_users = 28
 
 # Generate the network with user IDs
@@ -228,5 +228,5 @@ print(comparison.to_string(index=False))
 
 
 ## Save the network
-nx.write_gml(social_graph, "social_network_small_308.gml")
+nx.write_gml(social_graph, "social_network_med_438.gml")
 print("Network saved as social_network.gml", "with n_nodes:", len(social_graph.nodes()), "and n_edges:", len(social_graph.edges()))
