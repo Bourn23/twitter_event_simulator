@@ -6,8 +6,13 @@ import openai
 import os
 import concurrent.futures
 import time
+from textblob import TextBlob
+from dotenv import load_dotenv
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+load_dotenv()
+# openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = "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"
+
 
 priority_weights = {
     'org': 3,
@@ -66,6 +71,11 @@ class WorldModel:
         self.users_role = self.initialize_users_db()
         self.remaining_actions = predetermined_tweets
         self.posts_graph = nx.MultiDiGraph()  # Initialize the posts graph from the start
+        self.client = openai.OpenAI(api_key = openai_api_key)
+
+        self.basic_user_properties = ['name', 'type', 'title', 'age', 'gender', 'race', 'nationality', 'bio']
+        self.core_user_properties = ['name', 'type', 'title', 'age', 'gender', 'race', 'nationality', 'bio']
+        self.org_user_properties = ['name', 'type', 'title', 'age', 'gender', 'race', 'nationality', 'bio']
 
     def initialize_users_db(self): 
         user_types = {}
@@ -93,9 +103,13 @@ class WorldModel:
                     if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
                         # Use the graph to fetch the most relevant tweets
                         recent_tweets = self.get_recent_tweets_from_graph(user)
+                         #print("Recent tweets fetched in simualted ", recent_tweets)
                         action_info = self.take_action(user, recent_tweets)
                         if action_info[0]:  # Only process if there's an action
-                            self.process_action(user, action_info)
+
+                            # calculate subjectivity and polarity from tweets
+                            
+                            self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
 
         self.propagate_information()
         self.current_time += timedelta(minutes=15)
@@ -243,17 +257,21 @@ class WorldModel:
     #             self.posts_graph.nodes[update[1]]['replies'].append(update[2])
 
     ## adds to the tweet history of the user and the tweets graph
-    def process_action(self, user, action_info):
+    def process_action(self, user, action_info, user_polarity, user_subjectivity):
         action, target_post_id = action_info
+         #print("user ", user, "action ", action, "target_post_id ", target_post_id)
         post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
 
         if action == 'post':
-            new_post = f"User {self.get_user_property(user, 'name')} posts something interesting."
+            # pass user, user_polarity, user_subjectivity to generate_post
+            tweet_feed = self.get_recent_tweets_from_graph(user)
+            new_post = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
             self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
 
         elif action == 'post_url':
-            new_post = f"User {self.get_user_property(user, 'name')} posts an interesting URL."
+            tweet_feed = self.get_recent_tweets_from_graph(user)
+            new_post = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
             self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
 
@@ -265,7 +283,8 @@ class WorldModel:
 
         elif action == 'retweet' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
-            rt_content = f"RT: {target_post_data['content']}"
+            tweet_feed = self.get_recent_tweets_from_graph(user)
+            rt_content = self.generate_post(user, action, user_polarity, user_subjectivity, original_tweet=target_post_data['content'], tweet_history=tweet_feed)
             self.posts_graph.add_node(post_id, content=rt_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
             # Add an edge representing the 'retweet' interaction
@@ -273,14 +292,16 @@ class WorldModel:
 
         elif action == 'reply' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
-            reply_content = f"User {self.get_user_property(user, 'name')} replies to {self.get_user_property(target_post_data['owner'], 'name')}: Interesting!"
+            tweet_feed = self.get_recent_tweets_from_graph(user)
+            reply_content = self.generate_post(user, action, user_polarity, user_subjectivity, original_tweet=target_post_data['content'], tweet_history=tweet_feed)
             self.posts_graph.add_node(post_id, content=reply_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.posts_graph.add_edge(post_id, target_post_id, interaction='reply', timestamp=self.current_time)
             # Update the original post with the reply reference
             self.posts_graph.nodes[target_post_id]['replies'].append(post_id)
             self.add_to_tweet_history(user, post_id)
 
-    def take_action(self, user, tweets):
+    def take_action(self, user, tweets, step_size=0.1):
+         #print("Taking action in take_action")
         current_date = self.current_time.strftime('%Y-%m-%d')
         
         if current_date not in self.remaining_actions and current_date in predetermined_tweets:
@@ -289,51 +310,100 @@ class WorldModel:
         actions_today = self.remaining_actions.get(current_date, {})
         user_role = self.users_role[user]
 
+         #print("calculatng subjectivity and polarity")
+        # calculate subjectivity and polarity from tweets
+        historical_subjectivity = 0
+        historical_polarity = 0
+
+         #print("tweets in take_action", tweets)
+        for tweet in tweets:
+            tweet = tweet[1]['content']
+            blob = TextBlob(tweet)
+            sentiment = blob.sentiment
+            historical_polarity += sentiment.polarity
+            historical_subjectivity += sentiment.subjectivity
+        if len(tweets) != 0:
+            avg_historical_polarity = historical_polarity / len(tweets)
+            avg_historical_subjectivity = historical_subjectivity / len(tweets)
+        else:
+            avg_historical_polarity = 0
+            avg_historical_subjectivity = 0
+
+        # read initial polarity and subjectivity from user json based on its role
+        initial_polarity = self.get_user_property(user, 'polarity')
+        initial_subjectivity = self.get_user_property(user, 'subjectivity')
+
+        user_updated_polarity =initial_polarity + (step_size * avg_historical_polarity)
+        user_updated_subjectivity = initial_subjectivity + (step_size * avg_historical_subjectivity)
+        
+         #print("user updated polarity and subjectivity", user_updated_polarity, user_updated_subjectivity)
         if user_role in ['org', 'core']:
-            # action, selected_tweet = self.take_action_with_gpt4(user, tweets, actions_today)
-            action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
+            # action, selected_tweet = self.take_action_with_gpt4(user, tweets, actions_today, user_updated_subjectivity, user_updated_polarity)
+            action, selected_tweet = self.take_action_for_advanced_user(user, tweets, actions_today)
 
         else:
             action, selected_tweet = self.take_action_for_basic_user(user, tweets, actions_today)
 
-        return action, selected_tweet
-    def take_action_with_gpt4(self, user, tweets, actions_today):
-        # Use GPT-4 to generate the next action
-        prompt = self.construct_prompt(user, tweets, actions_today)
+        return action, selected_tweet, user_updated_polarity, user_updated_subjectivity
 
-        response = openai.ChatCompletion.create(
-            model = 'gpt-4o-mini',
-            messages = [
-                {"role": "system", "content": "You are an expert in social media simulations."},
+    # def take_action_with_gpt4(self, user, tweets, actions_today, subjectivity, polarity):
+    def generate_post(self, user, action, user_polarity, user_subjectivity, original_tweet=None, hashtags=None, tweet_history=None):
+        # Use GPT-4 to generate the next action
+        prompt = self.construct_prompt(user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history)
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",                
+                messages = [
+                {"role": "system", "content": """Your role is to use your best judgement to generate ONE tweet for the given user. Your tweet will be between the <output_format> tags:
+                     if you choose to post_url or post ONLY AND ALWAYS return answer in the format of ["{action}", {new_tweet}].
+                     if you choose to retweet, or like, return answer in the format of ["{action}", {tweet_id}]. NOTE the tweet_id is given in the user's prompt.
+                     if you choose to reply, return answer in the format of ["reply", {tweet_id}, {new_tweet}]."""},
                 {"role": "user", "content": prompt}
-            ]
-        )
+                ],
+                max_tokens=150,
+                temperature=0.7
+            )
+            response_post_processed = {
+                "response": response.choices[0].message.content,
+            }
+        except Exception as e:
+            return f"An error occurred: {str(e)}"
+        print("response_post_processed in generate_post", response_post_processed)
+        response_parsed = response_post_processed['response'].replace("[", "").replace("]", "").replace('"', "").split(",") # ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"]
+        action = response_parsed[0]
+        selected_tweet = response_parsed[1]
 
         # Process LLM response
-        action, selected_tweet = self.process_gpt4_response(response, actions_today, tweets)
+        # action, selected_tweet = self.process_gpt4_response(response_post_processed)
 
-        return action, selected_tweet
+        return selected_tweet
     
-    def construct_prompt(self, user, tweets, actions_today):
-        prompt = (
-            f"User role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
-            f"User background and preferences: {self.get_user_property(user, 'background')}.\n"
-            f"Current time: {self.current_time}.\n"
-            f"Available actions for today: {actions_today}.\n"
-            f"Recent tweets in (tweet_id, tweet) format:\n <tweets> {[(tweet_id, self.posts_graph.nodes[tweet_id]['content']) for tweet_id in tweets]}.\n </tweets>\n"
-            f"Considering the user's preferences, bio, time of day, and available actions, "
-            f"choose the most reasonable action the user should take next (post, post_url, retweet, reply, like)?"
-            "ONLY AND ALWAYS return answer in the format of [{action}, {selected_tweet_id}]." # might need to provide more context for the model to understand the task
-        )
-        return prompt
-    
-    def process_gpt4_response(self, response, actions_today, tweets):
+    def process_gpt4_response(self, response, actions_today):
+        
         action = None
         selected_tweet = None
-        
         # Parse the GPT-4 response to extract the recommended action
-        gpt4_action = response['choices'][0]['message']['content'].strip().lower()
+        gpt4_response = response['response'] 
+        # whole response is a string that looks like a list: ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"] let's convert it to a list
+        gpt4_response = gpt4_response.replace("[", "").replace("]", "").replace('"', "").split(",") # ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"]
+
         
+        # check what the length of the response is
+        if len(gpt4_response) == 2: # its either post, post_url, retweet, or like
+            gpt4_action = gpt4_response[0]
+            if gpt4_action == 'retweet':
+                selected_tweet = 'RT:' + gpt4_response[1]
+            elif gpt4_action == 'post' or gpt4_action == 'post_url':
+                selected_tweet = gpt4_response[1]
+            elif gpt4_action == 'like':
+                selected_tweet = gpt4_response[1]
+        if len(gpt4_response) == 3:
+            gpt4_action = gpt4_response[0]
+            if gpt4_action == 'reply':
+                selected_tweet = gpt4_response[0]
+                selected_tweet = 'RE:' + gpt4_response[1] + gpt4_response[2]
+         #print("parsed gpt4 response in process_gpt4_response")
         # Ensure the action is within the available actions
         if 'post_url' in gpt4_action and actions_today.get('post_url', 0) > 0:
             action = 'post_url'
@@ -353,13 +423,80 @@ class WorldModel:
             action = 'like'
             actions_today['like'] -= 1
 
-        # Select a tweet for retweet, reply, or like if needed
-        if action in ['retweet', 'reply', 'like']:
-            selected_tweet = random.choice(tweets) if tweets else None
+        # # Select a tweet for retweet, reply, or like if needed
+        # if action in ['retweet', 'reply', 'like']:
+        #     selected_tweet = random.choice(tweets) if tweets else None
         
         return action, selected_tweet
 
+    def construct_prompt(self, user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history):
+        # based on user role, feed the background info. for each user it is saved in self.basic_user_properties, self.core_user_properties, self.org_user_properties
+        # this will be the background info paragraph
+        background_info = ""
+        if self.users_role[user] == 'org':
+            for prop in self.org_user_properties:
+                background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
+        elif self.users_role[user] == 'core':
+            for prop in self.core_user_properties:
+                background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
+        elif self.users_role[user] == 'basic':
+            for prop in self.basic_user_properties:
+                background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
+        
+        prompt = (
+            f"User role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
+            f"User background info: {background_info}.\n"
+            f"User's sentiment: user's polarity: {user_polarity} \n user tweets' subjectivity: {user_subjectivity}"
+            f"Current time: {self.current_time}.\n"
+            f"User's action: {action}.\n"            
+        )
+
+        # add to prompt if the action is retweet, reply, or like
+        if hashtags:
+            prompt += f"Recommended Hashtags: {hashtags}.\n"
+        if action in ['retweet', 'reply']:
+            prompt += f"\nSelected tweet for {action}: {original_tweet}.\n"
+        if action in ['post', 'post_url', 'retweet', 'reply']:
+            prompt += f"\nUser's tweet feed in (tweet_id, tweet) format:\n <tweets> {[(tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history]}.\n </tweets>\n"
+
+        prompt += f"Considering the user's preferences, bio, time of day, and available actions, "
+        prompt += f"Choose the most reasonable action the user should take next (post, post_url, retweet, reply, like)?"
+        return prompt
+    
     def take_action_for_basic_user(self, user, tweets, actions_today):
+         #print("Taking action for basic user")
+        # Define a base action probability for basic users
+        base_action_probability = 0.3
+        
+        # Dynamic adjustment based on context (e.g., time of day, user engagement)
+        time_of_day_weight = 1.0
+        if 6 <= self.current_time.hour < 12:
+            time_of_day_weight = 1.2
+        elif 18 <= self.current_time.hour < 24:
+            time_of_day_weight = 1.1
+        else:
+            time_of_day_weight = 0.8
+        
+        # Adjust probability based on other contextual factors (e.g., user engagement)
+        engagement_factor = self.calculate_engagement_factor()
+
+
+        action_probability = base_action_probability * time_of_day_weight * engagement_factor
+        
+        # Decide whether to take an action
+        if random.random() < action_probability:
+            user_context = {'time_of_day': 'morning' if 6 <= self.current_time.hour < 12 else 'evening'}
+            action = self.select_best_action(actions_today, user_context)
+        else:
+            action = None
+
+        selected_tweet = self.select_tweet_for_action(action, tweets)
+         #print("action in take_action_for_basic_user", action);  #print("selected tweet ", selected_tweet)
+        return action, selected_tweet
+    
+
+    def take_action_for_advanced_user(self, user, tweets, actions_today):
+         #print("Taking action for basic user")
         # Define a base action probability for basic users
         base_action_probability = 0.8
         
@@ -386,7 +523,7 @@ class WorldModel:
             action = None
 
         selected_tweet = self.select_tweet_for_action(action, tweets)
-        
+         #print("action in take_action_for_basic_user", action);  #print("selected tweet ", selected_tweet)
         return action, selected_tweet
     
     def calculate_engagement_factor(self):
@@ -432,6 +569,7 @@ class WorldModel:
         return chosen_action
 
     def select_tweet_for_action(self, action, tweets):
+         #print("Selecting tweet for action")
         if action in ['retweet', 'reply', 'like']:
             return self.get_most_influential_tweet(tweets)
         return None
@@ -441,7 +579,7 @@ class WorldModel:
             return None
         
         # Calculate the influence score for each tweet
-        influence_scores = {tweet: self.calculate_influence_score(tweet) for tweet in tweets}
+        influence_scores = {tweet[0]: self.calculate_influence_score(tweet[0]) for tweet in tweets}
         
         # Select the tweet with the highest influence score
         return max(influence_scores, key=influence_scores.get)
@@ -522,24 +660,28 @@ class WorldModel:
         # TODO (later); more advanced idea to fetch all tweets from the user's network as well as friends of friends
         # TODO (later); we can then have a machine learning model to predict which tweets are most likely to be interacted by the user and show those
         # Start by fetching tweets from the user's own history
-        user_tweets = [n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
+        user_tweets = [(n, data) for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
+         #print(f"{user_tweets=}")
         
         # Sort by timestamp to get the most recent tweets
-        sorted_user_tweets = sorted(user_tweets, key=lambda n: self.posts_graph.nodes[n]['timestamp'], reverse=True)
-        
+        ## updated the sorted_user_tweets to the new data structure: [(1, {'content': None, 'owner': 'fa3bd4fe-30ee-48cd-bf25-6ec16c76ff52', 'timestamp': datetime.datetime(2040, 5, 30, 0, 0), 'likes': 0, 'retweets': 0, 'replies': []})]
+        sorted_user_tweets = sorted(user_tweets, key=lambda n: n[1]['timestamp'], reverse=True)
+
+         #print(f"{sorted_user_tweets=}")
         # Now expand to connected users (neighbors) to fetch their tweets
         connected_users = list(self.graph.neighbors(user))
         connected_tweets = []
 
         for connected_user in connected_users:
-            connected_tweets.extend([n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
-        
+            connected_tweets.extend([(n,data) for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
+         #print(f"{connected_tweets=}")
         # Sort connected tweets by timestamp as well
-        sorted_connected_tweets = sorted(connected_tweets, key=lambda n: self.posts_graph.nodes[n]['timestamp'], reverse=True)
+        sorted_connected_tweets = sorted(connected_tweets, key=lambda n: n[1]['timestamp'], reverse=True)
         
         # Combine the user's tweets with connected tweets and limit the result
         all_sorted_tweets = sorted_user_tweets + sorted_connected_tweets
-
+         #print(f"{all_sorted_tweets=}")
+         #print(f"{sorted_connected_tweets=}")
         #TODO: Choose tweets based on their weight instead of just selecting the first n
         recent_tweets = all_sorted_tweets[:limit]
         
@@ -607,11 +749,12 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
     # Measure the time taken for the simulation
     start_time = time.time()
     while world.current_time <= world.end_date:
-        # world.simulate_social_media_activity()
-        world.simulate_social_media_activity_parallel()
+        world.simulate_social_media_activity()
+        # world.simulate_social_media_activity_parallel()
         
         if world.current_time.minute == 0:  # Log every hour
-            print(f"Simulation time: {world.current_time}, time elapsed: {time.time() - start_time:.2f} seconds.")
+             print(f"Simulation time: {world.current_time}, time elapsed: {time.time() - start_time:.2f} seconds.")
+        # break
 
     print("Execution time:", time.time() - start_time)
     return world.save_tweets('simulation_results.json')
@@ -619,15 +762,15 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
 
 if __name__ == "__main__":
     # Run the simulation
-    network_path = 'social_network_small_50.gml'
-    core_biography_path = 'Core_characters_fixed_ids.json'
+    network_path = 'social_network_small_15.gml'
+    core_biography_path = 'core_characters_fixed_ids.json'
     basic_biography_path = 'basic_characters_fixed_ids.json'
     org_biography_path = 'total_organizations_fixed_ids.json'
 
     start_date = datetime(2040, 5, 30)
     end_date = datetime(2040, 5, 31)
     final_state = run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
-    print("Simulation completed.")
+     #print("Simulation completed.")
 
 
 

@@ -1,5 +1,6 @@
 import json
 import uuid
+import random
 
 def assign_unique_ids(characters):
     seen_ids = set()
@@ -17,12 +18,18 @@ def assign_unique_ids(characters):
         character["aesop_id"] = new_id
         id_map[original_id] = new_id
 
+        # also add polarity/subjectivity to the users it's a random value between -1 and 1 
+        ## This is a quick fix, do not use this in production
+        character["polarity"] = round(random.uniform(-1, 1), 1)
+        character["subjectivity"] = round(random.uniform(0, 1), 1)
+
+
     return characters, id_map
 
 def fix_duplicate_ids(json_file_path, output_file_path):
     # Load the parsed JSON data
-    # with open(json_file_path, 'r', encoding='utf-8-sig') as file: # for parsing Core_characters.json
-    with open(json_file_path, 'r', encoding='utf-8') as file:
+    with open(json_file_path, 'r', encoding='utf-8-sig') as file: # for parsing Core_characters.json
+    # with open(json_file_path, 'r', encoding='utf-8') as file:
         characters = json.load(file)
 
     # Assign new unique IDs to characters with duplicate aesop_id
@@ -41,9 +48,12 @@ def fix_duplicate_ids(json_file_path, output_file_path):
         print("No duplicate IDs were found.")
 
 # File path to the JSON file containing parsed character data
-json_file_path = 'Organizations_bad.json'
+json_file_path = 'Core_characters.json' # change the encoding for this one
+# json_file_path = 'Basic_characters.json'
+# json_file_path = 'Organizations_good.json' ## NOTE: merge the two organization files into total_organizations.json
+# json_file_path = 'Organizations_bad.json' ## NOTE: merge the two organization files into total_organizations.json
 # Output file path for the fixed JSON
-output_file_path = 'bad_org_characters_fixed_ids.json'
+output_file_path = 'core_characters_fixed_ids.json'
 
 # Run the process to fix duplicate IDs
 fix_duplicate_ids(json_file_path, output_file_path)

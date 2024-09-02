@@ -51,3 +51,9 @@
 --> promote hashtag use [ do we have a collection of hashtags? ]
 --> we don't want user to continually send new posts (so make sure previous action is also considered) -- especially tendency to post decrease while for active engagement increases
 --> there are times where a user is active and then deactive. during protest we want most of our users to be active. especially we want them to organize/coordinate the protest information.
+
+
+ideas for tweet generation via LLM:
+1. it's an oracle/ social media expert simulation.
+2. it is the user itself.
+3. ??
