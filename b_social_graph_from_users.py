@@ -3,7 +3,7 @@ import random
 import numpy as np
 import json
 
-def load_users(json_file, num_users):
+def load_users(json_file, num_users, select_intentionally=False):
     """
     Load a subset of users from a JSON file.
 
@@ -17,8 +17,17 @@ def load_users(json_file, num_users):
     with open(json_file, 'r') as f:
         users_data = json.load(f)
     
-    # Randomly sample the required number of users
-    sampled_users = random.sample(users_data, num_users)
+    
+    # if select intentionally, we must first select users without tweets key
+    if select_intentionally:
+        sampled_users = [user for user in users_data if 'tweets' not in user]
+        # then sample the rest of the users
+        num_users_to_sample = num_users - len(sampled_users)
+        if num_users_to_sample > 0:
+            sampled_users += random.sample([user for user in users_data if 'tweets' in user], num_users_to_sample)
+    else:
+        # Randomly sample the required number of users
+        sampled_users = random.sample(users_data, num_users)
     return sampled_users
 
 def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_users):
@@ -26,9 +35,9 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
     G = nx.DiGraph()  # Use a directed graph
 
     # Step 1: Load only the required number of users
-    basic_users_data = load_users('basic_characters_fixed_ids.json', num_basic_users)
-    core_users_data = load_users('core_characters_fixed_ids.json', num_core_users)
-    org_users_data = load_users('total_organizations_fixed_ids.json', num_org_users)
+    basic_users_data = load_users('sep2_basic_characters_fixed_ids.json', num_basic_users)
+    core_users_data = load_users('sep2_core_characters_fixed_ids.json', num_core_users, select_intentionally=True)
+    org_users_data = load_users('sep2_org_characters_fixed_ids.json', num_org_users)
 
     # Assign user IDs to nodes
     basic_users_ids = [user['aesop_id'] for user in basic_users_data]
@@ -121,9 +130,9 @@ def generate_social_graph_with_users(num_basic_users, num_core_users, num_org_us
     return G
 
 # Parameters for the network
-num_basic_users = 10
-num_core_users = 3
-num_org_users = 2
+num_basic_users = 210
+num_core_users = 70
+num_org_users = 28
 
 # Generate the network with user IDs
 social_graph = generate_social_graph_with_users(num_basic_users, num_core_users, num_org_users)
@@ -219,5 +228,5 @@ print(comparison.to_string(index=False))
 
 
 ## Save the network
-nx.write_gml(social_graph, "social_network_small_15.gml")
+nx.write_gml(social_graph, "social_network_small_308.gml")
 print("Network saved as social_network.gml", "with n_nodes:", len(social_graph.nodes()), "and n_edges:", len(social_graph.edges()))

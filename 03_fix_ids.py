@@ -20,7 +20,7 @@ def assign_unique_ids(characters):
 
         # also add polarity/subjectivity to the users it's a random value between -1 and 1 
         ## This is a quick fix, do not use this in production
-        character["polarity"] = round(random.uniform(-1, 1), 1)
+        character["polarity"] = round(random.uniform(0, 1), 1)
         character["subjectivity"] = round(random.uniform(0, 1), 1)
 
 
@@ -48,12 +48,13 @@ def fix_duplicate_ids(json_file_path, output_file_path):
         print("No duplicate IDs were found.")
 
 # File path to the JSON file containing parsed character data
-json_file_path = 'Core_characters.json' # change the encoding for this one
-# json_file_path = 'Basic_characters.json'
-# json_file_path = 'Organizations_good.json' ## NOTE: merge the two organization files into total_organizations.json
+# json_file_path = 'sep2_data_Characters_core.json' # change the encoding for this one
+# json_file_path = 'sep2_data_Characters.json'
+# json_file_path = 'sep2_good_org.json' ## NOTE: merge the two organization files into total_organizations.json
 # json_file_path = 'Organizations_bad.json' ## NOTE: merge the two organization files into total_organizations.json
+json_file_path = 'data_characters_basic_borna.json'
 # Output file path for the fixed JSON
-output_file_path = 'core_characters_fixed_ids.json'
+output_file_path = 'sep2_basic_characters_fixed_ids.json'
 
 # Run the process to fix duplicate IDs
 fix_duplicate_ids(json_file_path, output_file_path)

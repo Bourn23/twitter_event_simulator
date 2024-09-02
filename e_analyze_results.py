@@ -21,9 +21,9 @@ def analyze_results(filepath):
     # lets do deeper analysis of the data
     # 1. make a follower/following ratio for each user (we can load the user bio from: core_characters.json, basic_characters.json, total_organizations.json) ## but let's wait on this since this has nothing to do with the tweets graph
     # 2. identify the group of users (core, basic, organization) and plot the count of their posts and interactions
-    core_users_ids = [user["aesop_id"] for user in json.load(open('Core_characters_fixed_ids.json', 'r'))]
-    basic_users_ids = [user["aesop_id"] for user in json.load(open('basic_characters_fixed_ids.json', 'r'))]
-    organization_users_ids = [user["aesop_id"] for user in json.load(open('total_organizations_fixed_ids.json', 'r'))]
+    core_users_ids = [user["aesop_id"] for user in json.load(open('sep2_core_characters_fixed_ids.json', 'r'))]
+    basic_users_ids = [user["aesop_id"] for user in json.load(open('sep2_basic_characters_fixed_ids.json', 'r'))]
+    organization_users_ids = [user["aesop_id"] for user in json.load(open('sep2_org_characters_fixed_ids.json', 'r'))]
 
     core_tweets = 0
     basic_tweets = 0
@@ -77,7 +77,7 @@ def analyze_results(filepath):
 
 if __name__ == "__main__":
     # Path to the simulation results file
-    filepath = 'simulation_results.json'
+    filepath = 'simulation_results_2040-05-30 02:00:00.json'
     
     # Analyze the results
     analyze_results(filepath)
