@@ -8,11 +8,37 @@ import concurrent.futures
 import time
 from textblob import TextBlob
 from dotenv import load_dotenv
+from advanced_social_media_agent import AdvancedSocialMediaAgent
+
+
+from threading import Lock
+lock = Lock()
+total_input_token_count = 0
+total_output_token_count = 0
 
 load_dotenv()
 openai_api_key_1 = os.getenv("OPENAI_API_KEY")
+# openai_api_key_1 = "sk-proj-Z0kpKJr6_7h26WURhjLr78y4FhtDkTo_rQ5ml2otc_yh0ZK0BmEdP5KQsgT3BlbkFJz7zzVT_cMJ4vwO3SSAporim3HuW2d"
 openai_api_key_2 = os.getenv("OPENAI_API_KEY2")
+# openai_api_key_2 = "sk-proj-Z0kpKJr6_7h26WURhjLr78y4FhtDkTo_rQ5ml2otc_yh0ZK0BmEdP5KQsgT3BlbkFJz7zzVT_cMJ4vwO3SSAporim3HuW2d"
 
+
+from pydantic import BaseModel
+import tiktoken
+from tenacity import retry, stop_after_attempt, wait_random_exponential
+
+
+# define an output format for the user tweets and reasoning
+class UserTweets(BaseModel):
+    action: str
+    inspired_by_behavior: str
+    tweet: str
+    reply_tweet_id: int
+    retweet_tweet_id: int
+
+
+
+enc = tiktoken.encoding_for_model('gpt-4o-mini')
 
 
 priority_weights = {
@@ -29,43 +55,43 @@ priority_weights = {
 
 predetermined_tweets = {
     '2040-05-30': {
-        'post': 1936-980,
-        'post_url': 980,
-        'retweet': 189,
-        'reply': 647,
+        'post': 4500,
+        'post_url': 2000,
+        'retweet': 500,
+        'reply': 780,
         'like': 2800,
     },
     '2040-05-31': {
-        'post': 5354-2197,
-        'post_url': 2197,
+        'post': 5800,
+        'post_url': 4197,
         'retweet': 980,
         'reply': 732,
         'like': 19000,
     },
     '2040-06-01': {
-        'post': 8500-4350,
-        'post_url': 1771,
+        'post': 8500,
+        'post_url': 4800,
         'retweet': 1050,
         'reply': 1109,
         'like': 16520
     },
     '2040-06-02': {
-        'post': 4274-2213,
+        'post': 4274,
         'post_url': 2213,
         'retweet': 1088,
         'reply': 1712,
         'like': 9200
     },
     '2040-06-03': {
-        'post': 1929-957,
-        'post_url': 957,
+        'post': 1929,
+        'post_url': 1500,
         'retweet': 185,
         'reply': 600,
         'like': 4333
     }
 }
 
-good_hashtags = {
+good_hashtags = [
     "#SaveArcticWildlife",
     "#ProtectPolarBears",
     "#NoToHeliTours",
@@ -90,9 +116,9 @@ good_hashtags = {
     "#ArkhangelskOblast",
     "#EcoHellTours",
     "#GreenerEco",
-}
+]
 
-bad_hashtags = {
+bad_hashtags = [
     "#SupportHeliTours",
     "#ArcticOpportunities",
     "#EcoOverreaction",
@@ -117,7 +143,8 @@ bad_hashtags = {
     "#ArkhangelskOblast",
     "#EcoHellTours",
     "#GreenerEco",
-}
+]
+
 class WorldModel:
     def __init__(self, network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
         self.start_date = start_date
@@ -132,7 +159,7 @@ class WorldModel:
         self.remaining_actions = predetermined_tweets
         self.posts_graph = nx.MultiDiGraph()  # Initialize the posts graph from the start
         # try loading the post_graph from the file
-        # self.posts_graph = nx.read_gml('posts_graph_2040-05-30 16:00:00.gml')
+        # self.posts_graph = nx.read_gml('posts_graph_2040-05-30 14:00:00-network438.gml')
         self.client = openai.OpenAI(api_key = openai_api_key_1)
         self.client2 = openai.OpenAI(api_key = openai_api_key_2)
         self.active_client = self.client
@@ -150,6 +177,7 @@ class WorldModel:
             self.active_client = self.client
             self.who_active_client = 'client1'
 
+
     def initialize_users_db(self): 
         user_types = {}
         for user in self.core_bios:
@@ -164,7 +192,7 @@ class WorldModel:
         return nx.read_gml(network_path)
     
     def load_biographies(self, biography_path):
-        with open(biography_path, 'r') as file:
+        with open(biography_path, 'r', encoding='utf-8-sig') as file:
             return json.load(file)
 
     def simulate_social_media_activity(self):
@@ -181,50 +209,137 @@ class WorldModel:
                         if action_info[0]:  # Only process if there's an action
 
                             # calculate subjectivity and polarity from tweets
-                            
                             self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
 
-        self.propagate_information()
+        # self.propagate_information() # redundant???
         self.current_time += timedelta(minutes=15)
 
-    def simulate_social_media_activity_parallel(self):
-        users_by_type = {'org': [], 'core': [], 'basic': []}
+    def check_to_pause(self, now, last_pause):
+        global total_input_token_count, total_output_token_count
+        if total_input_token_count + total_output_token_count >= 1850000:
+            # check if it has been 1 minute since the last pause
+            if now - last_pause < 60:
+                print(f"Pausing for {1.15 * (now-last_pause)} seconds to avoid exceeding the token limit...")
+                time.sleep(1.15*(now - last_pause))
+                last_pause = time.time()
+                total_input_token_count = 0
+                total_output_token_count = 0
+                print("Resuming...")
+            else:
+                print("Waiting for 1 minute before resuming...")
+                time.sleep(10)
+                last_pause = time.time()
+            
+        return last_pause
 
-        # Separate users by type for parallel processing
-        list_nodes = list(self.graph.nodes())
-        random.shuffle(list_nodes)
-        for user in list_nodes:
-            user_type = self.users_role[user]
-            users_by_type[user_type].append(user)
+    def simulate_social_media_activity_parallel2(self):
+        last_pause = time.time()
+        processed_users = {}
 
-        # Process each user type in parallel
-        max_workers = 5
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
-            for user_type in ['org', 'core', 'basic']:
-                futures.append(executor.submit(self.process_users, users_by_type[user_type]))
 
-            # Ensure all threads are complete
-            concurrent.futures.wait(futures)
+            # shuffle so that it's not always the same users being processed first
+            list_nodes = list(self.graph.nodes())
+            random.shuffle(list_nodes)
+            for idx, user in enumerate(list_nodes):
+                # check if we have exceeded our token limit
+                now = time.time()
+                last_pause = self.check_to_pause(now, last_pause)#, total_input_token_count, total_output_token_count)
 
-        self.propagate_information()
+                # check if any actions left today
+                if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+                    futures.append(executor.submit(self.process_users, user))
+
+                if idx % 100 == 0:
+                    concurrent.futures.wait(futures)
+                    for future in futures:
+                        try:
+                            # print(future.result())
+                            result, _, _ = future.result()
+                            processed_users[str(result[-1])] = {result[0]: [result[1], result[2]]}
+     
+                        except Exception as e:
+                            print(f"Error processing user [in concurrent]: {e}")
+
+                    with open('processed_users.txt', 'w') as file:
+                        # print("processed users ", len(processed_users.keys()))
+                        # print("sample processed users ", list(processed_users.values())[:5])
+                        file.write(f'{processed_users.values()}')
+        # self.propagate_information() ## redundant???
         self.current_time += timedelta(minutes=15)
 
-    def process_users(self, users):
-        # sleep 10 s with 50% chance, 20s with 10% chance, and 5s with 40% chance
-        time.sleep(random.choice([10, 20, 5, 5, 5, 5, 5, 5, 5, 5]))
-        for user in users:
+    # def simulate_social_media_activity_parallel(self):
+    #     global total_input_token_count, total_output_token_count
+    #     users_by_type = {'org': [], 'core': [], 'basic': []}
+
+    #     # Separate users by type for parallel processing
+    #     list_nodes = list(self.graph.nodes())
+    #     random.shuffle(list_nodes)
+    #     for user in list_nodes:
+    #         user_type = self.users_role[user]
+    #         users_by_type[user_type].append(user)
+
+    #     # Process each user type in parallel
+    #     max_workers = 3
+    #     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+    #         futures = []
+    #         for user_type in ['org', 'core', 'basic']:
+    #             futures.append(executor.submit(self.process_users, users_by_type[user_type]))
+
+    #         # Ensure all threads are complete
+    #         concurrent.futures.wait(futures)
+
+    #     self.propagate_information()
+    #     self.current_time += timedelta(minutes=15)
+
+
+    def process_users(self, user):
+        global total_input_token_count, total_output_token_count
+        # print("Users being processed ", user)
+        input_token_count = 0
+        output_token_count = 0
+        try:
+            # skip users if they are deactive
             join_time = self.get_user_property(user, 'join_time')
             leave_time = self.get_user_property(user, 'leave_time')
+
             if join_time is not None or leave_time is not None:
-                # basic users have a join_time and leave_time: "join_time": "2024-05-30T08:23", "leave_time": "2024-06-03T12:42" if the current time is not within the join_time and leave_time, skip the user
                 if self.current_time < datetime.strptime(join_time, '%Y-%m-%dT%H:%M') or self.current_time > datetime.strptime(leave_time, '%Y-%m-%dT%H:%M'):
-                    continue # skip the user because they are not active at this time
+                    return (user,"NO ACTION - USER IS DISABLED", "N/A", self.current_time), 0, 0 # skip the user because they are not active at this time
+
+            # check if any actions left today - then take action
             if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
                 recent_tweets = self.get_recent_tweets_from_graph(user)
                 action_info = self.take_action(user, recent_tweets)
                 if action_info[0]:  # Only process if there's an action
-                    self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
+                    input_token_count, output_token_count = self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
+                
+            with lock:
+                total_input_token_count += input_token_count
+                total_output_token_count += output_token_count
+
+        except Exception as e:
+            print(f"Error processing users: {e}")
+            return (user,"N/A", "N/A", self.current_time), 0, 0
+        return (user,action_info[0], action_info[1], self.current_time), total_input_token_count, total_output_token_count
+    
+
+    # def process_users(self, users):
+    #     # sleep 10 s with 50% chance, 20s with 10% chance, and 5s with 40% chance
+    #     time.sleep(random.choice([10, 20, 30]))
+    #     for user in users:
+    #         join_time = self.get_user_property(user, 'join_time')
+    #         leave_time = self.get_user_property(user, 'leave_time')
+    #         if join_time is not None or leave_time is not None:
+    #             # basic users have a join_time and leave_time: "join_time": "2024-05-30T08:23", "leave_time": "2024-06-03T12:42" if the current time is not within the join_time and leave_time, skip the user
+    #             if self.current_time < datetime.strptime(join_time, '%Y-%m-%dT%H:%M') or self.current_time > datetime.strptime(leave_time, '%Y-%m-%dT%H:%M'):
+    #                 continue # skip the user because they are not active at this time
+    #         if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+    #             recent_tweets = self.get_recent_tweets_from_graph(user)
+    #             action_info = self.take_action(user, recent_tweets)
+    #             if action_info[0]:  # Only process if there's an action
+    #                 input_token_count, output_token_count = self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
         
     def get_tweets_for_user(self, user):
         connected_nodes = list(self.graph.neighbors(user))
@@ -260,25 +375,19 @@ class WorldModel:
 
     ## adds to the tweet history of the user and the tweets graph
     def process_action(self, user, action_info, user_polarity, user_subjectivity):
-        # print("Chosen action ", action_info)
         action, target_post_id = action_info
-         #print("user ", user, "action ", action, "target_post_id ", target_post_id)
         post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
 
-
-                    # if the character's action is to post_url or post ONLY AND ALWAYS return answer in the format of ["{new_tweet}"].
-                    #  if the character's action is to retweet, or like, return answer in the format of ["{action}", "{tweet_id}"]. NOTE the tweet_id is given in the user's prompt.
-                    #  if character choose to reply, return answer in the format of ["{tweet_id}", "{new_tweet}"]."""},
         if action == 'post':
             # pass user, user_polarity, user_subjectivity to generate_post
             tweet_feed = self.get_recent_tweets_from_graph(user)
-            new_post = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
+            new_post, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
             self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
 
         elif action == 'post_url':
             tweet_feed = self.get_recent_tweets_from_graph(user)
-            new_post = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
+            new_post,input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
             self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
 
@@ -287,32 +396,38 @@ class WorldModel:
             self.posts_graph.nodes[target_post_id]['likes'] += 1
             # Add an edge representing the 'like' interaction
             self.posts_graph.add_edge(user, target_post_id, interaction='like', timestamp=self.current_time)
+            input_token_count = 0
+            output_token_count = 0
+            
 
         elif action == 'retweet' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
             tweet_feed = self.get_recent_tweets_from_graph(user)
-            rt_content = self.generate_post(user, action, user_polarity, user_subjectivity, original_tweet=target_post_data['content'], tweet_history=tweet_feed)
+            
+            rt_content, rt_target_id, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, reaction_to_tweet=target_post_data['content'], tweet_history=tweet_feed)
             # rt_contet is the post_id of the retweet; get the post
-            rt_content = self.posts_graph.nodes[rt_content]['content']
-            self.posts_graph.add_node(post_id, content=rt_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.add_to_tweet_history(user, post_id)
+            # rt_content = self.posts_graph.nodes[rt_content]['content']
+            self.posts_graph.add_node(post_id, content=f"RT: {target_post_data['content']}" + rt_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            # self.add_to_tweet_history(user, post_id) #redundant
             # Add an edge representing the 'retweet' interaction
             self.posts_graph.add_edge(post_id, target_post_id, interaction='retweet', timestamp=self.current_time)
+            # Update the original post with the retweet reference
+            self.posts_graph.nodes[target_post_id]['retweets'] += 1
 
         elif action == 'reply' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
             tweet_feed = self.get_recent_tweets_from_graph(user)
-            post = self.generate_post(user, action, user_polarity, user_subjectivity, original_tweet=target_post_data['content'], tweet_history=tweet_feed)
-            reply_id, reply_content = post[0], post[1]
-            target_post_data = self.posts_graph.nodes[reply_id]['content']
-            self.posts_graph.add_node(reply_id, content=reply_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
-            self.posts_graph.add_edge(reply_id, target_post_id, interaction='reply', timestamp=self.current_time)
+            #TODO: we can later pass more than just the reply_tweet, for instance we could pass the replies made to that tweet too.
+            replied_post_generated, _, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, reaction_to_tweet=target_post_data['content'], tweet_history=tweet_feed)
+            self.posts_graph.add_node(post_id, content=f"RE: {target_post_data['content']}" + replied_post_generated, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
+            self.posts_graph.add_edge(post_id, target_post_id, interaction='reply', timestamp=self.current_time)
             # Update the original post with the reply reference
-            self.posts_graph.nodes[reply_id]['replies'].append(post_id)
-            self.add_to_tweet_history(user, reply_content)
-
+            self.posts_graph.nodes[target_post_id]['replies'].append(post_id)
+            # self.add_to_tweet_history(user, reply_content) # redundant
+        
+        return input_token_count, output_token_count
+    
     def take_action(self, user, tweets, step_size=0.1):
-         #print("Taking action in take_action")
         current_date = self.current_time.strftime('%Y-%m-%d')
         
         if current_date not in self.remaining_actions and current_date in predetermined_tweets:
@@ -328,15 +443,15 @@ class WorldModel:
             historical_polarity = 0
 
             #print("tweets in take_action", tweets)
-            for tweet in tweets:
+            for tweet in tweets['neighbors_tweets']:
                 tweet = tweet[1]['content']
                 blob = TextBlob(tweet)
                 sentiment = blob.sentiment
                 historical_polarity += sentiment.polarity
                 historical_subjectivity += sentiment.subjectivity
-            if len(tweets) != 0:
-                avg_historical_polarity = historical_polarity / len(tweets)
-                avg_historical_subjectivity = historical_subjectivity / len(tweets)
+            if len(tweets['neighbors_tweets']) != 0:
+                avg_historical_polarity = historical_polarity / len(tweets['neighbors_tweets'])
+                avg_historical_subjectivity = historical_subjectivity / len(tweets['neighbors_tweets'])
             else:
                 avg_historical_polarity = 0
                 avg_historical_subjectivity = 0
@@ -362,198 +477,10 @@ class WorldModel:
         return action, selected_tweet, user_updated_polarity, user_updated_subjectivity
 
     # def take_action_with_gpt4(self, user, tweets, actions_today, subjectivity, polarity):
-    def generate_post(self, user, action, user_polarity, user_subjectivity, original_tweet=None, hashtags=None, tweet_history=None):
-        # Use GPT-4 to generate the next action
-        prompt = self.construct_prompt(user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history)
-        # 20% chance of choosing gpt-4o instead of gpt-4o-mini
-        if random.random() < 0.2:
-            model_name = "gpt-4o"
-        else:
-            model_name = "gpt-4o-mini"
-        try:
-            response = self.client.chat.completions.create(
-                model=model_name,                
-                messages = [
-                {"role": "system", "content": """Given the user's past behavior and intents, generate a diverse set of tweets that converge on their typical style and content. 
-                The generated tweets should mimic the user's behavior as closely as possible, reflecting their interests, tone, and typical language use. 
-                Consider the user's past tweets, their commonly used phrases, the topics they often discuss, and the sentiment of their messages. 
-                Remember, the goal is not to simply replicate the user's past tweets, but to create new content that feels authentically like something the user would post.
-                 <scenario>
-                In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land. This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. Grass Roots Environmental Organization: The environmental group "If Not Now, Then When?" (INNW) comprises a widespread network of activists around the globe, with significant concentrations in Australia, the United States (particularly the Pacific Northwest), Ireland, and the UK. Kaiara Willowbank, a prominent grassroots blogger for INNW, recently published a blog post addressing the issue at hand. In her post, Willowbank criticizes the Norwegian Government and its President for their silence on the matter. She argues that in such challenging times, it is crucial for leaders and nations to adopt a firmer stance in dealing with companies and countries, like Russia and Heliexpress LTD, that seek to exploit situations to their advantage.
-                Grass Roots Primary Source: "In these critical moments, silence is not just absence—it's acquiescence. It's essential that our world leaders, including the Norwegian Government, rise to the challenge and confront those who view our environmental crises as opportunities for exploitation. Russia and Heliexpress LTD are just the tip of the iceberg.
-                We need action, commitment, and transparency, now more than ever. Hold Norway to task, #ShameOnNorway," stated Kaiara Willowbank, a vocal advocate and blogger for "If Not Now, Then When?". International Environmental Organization: EcoVanguard Solutions, an international NGO, focuses on environmental issues in the Arctic Sea region, particularly pollution, due to the area's increased activity over recent years.
-                Anya Chatterjee-Smith, the Chief Communications Officer of their Arctic Sea Division, has publicly criticized Heliexpress LTD for not being transparent about how they plan to mitigate their impact on endangered species populations. Additionally, she has openly condemned Russia and Igor Petrovich Kuznetsov, the Governor of Arkhangelsk Oblast, for their disregard for the region's escalating environmental challenges, specifically pointing out their lack of concern for this pressing issue.
-                International Environmental Organization, Primary Source: "As the Chief Communications Officer of EcoVanguard Solutions' Arctic Sea Division, I must express our profound disappointment in the lack of transparency and concern from Heliexpress LTD, the Russian government, and particularly Governor Igor Petrovich Kuznetsov of Arkhangelsk Oblast. Their disregard for the critical environmental issues facing the Arctic Sea region, especially the threat to endangered species, is unacceptable.
-                Immediate action and open dialogue are essential to address these pressing challenges effectively. We need to work together to make sure our children and grandchildren have A Greener Tomorrow™" – Public Statement from Anya Chatterjee-Smith, CCO of EcoVanguard Solutions Arctic Sea Division. Environmental Economist Professor: Rowan Emerson, a socio-ecologist and environmental economist, recently spoke on Planetwise Broadcast Radio (PBR), emphasizing that EcoVanguard Solutions should collaborate with grassroots organizations like "If Not Now, Then When?" (INNW).
-                He highlighted that although INNW may lack the funding of larger organizations, they have a broader base of support and can mobilize more voices. Emerson pointed out that EcoVanguard's criticism of the Governor of Arkhangelsk Oblast and the President of Heliexpress, while excluding the Norwegian government, indicates a disconnect from the wider environmental movement—a perspective clearly demonstrated by INNW. Environmental Economist Professor, Primary Source: "Rowan Emerson criticizes EcoVanguard Solutions for their narrow focus on figures like the President of Heliexpress and Governor Igor Kuznetsov, overlooking the potential of grassroots mobilization through 'If Not Now, Then When?' and the need to engage with the Norwegian government and its president.
-                'True environmental progress demands that we harness grassroots energy and direct our advocacy towards all pivotal actors, including those at the highest levels of government. By sidelining groups like INNW and not mobilizing against broader targets such as Norway's leadership, we miss critical opportunities for impactful change,' Emerson argues." Yet To Comment: The following organizations and individuals have yet to comment, and therefore do not have any primary source information available. Norway Norwegian Ministry of Foreign Affairs Norwegian President, Ingrid Johansen Russia Ministry of Foreign Affairs of the Russian Federation Governor of Arkhangelsk Oblast, Petrovich Kuznetsov Organizations Heliexpress LTD People Member of Environmental Group "If Not Now, Then When?" Name: Kaiara Willowbank Username: @KaiaraNoBrakesWillow Chief Communications Officer (CCO) of INGO Environmental Organization "EcoVanguard Solutions" Name: Anya Chatterjee-Smith Username: @AnyaEVS Social Movement scholar from the United States (Socio-ecologist and Economics Professor from a small liberal arts college outside of Boston, MA) Name: Rowan Emerson Username: @RowanEmersonPhD Governor of Arkhangelsk Oblast, Russia. Name: Petrovich Kuznetsov Username: @Kuznetsov_RF Norwegian President Name: Ingrid Johansen Username: @IngridJohansen Organizations: "If Not Now, Then When," Grassroots Environmental Group Usernames: @innw & @innw_US Hashtags Used: #INNW #IfNotNowThenWhen #ShameOnNorway "EcoVanguard Solutions," International Non-Governmental Environmental Organization Username: @agreenertomorrowEVS Hashtags: #agreenertomorrow #EcoVanguardSolutions #ecomovement #ProtectNSReserve "Heliexpress LTD," Russian Helicopter Tour Company with new tours from Arkhangelsk Oblast passing over Kong Karls Land.
-                Username: @heliexpressLTD Hashtag: #heliexpresstours #helitours_RU Norwegian Ministry of Foreign Affairs Username: @NorwayMFA Ministry of Foreign Affairs of the Russian Federation Username: @MFA_Russia General Use Hashtags: #Artic #ArkhangelskOblast #EcoHellTours #GreenerEco
-                <begin summary scenario> 
-                "scenario_summary": "In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land.
-                This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. ", "scenario_description": "In the scenario known as Melted Caps, which takes place from May 30th to June 3rd, 2040, the melting of Arctic sea caps has caused significant changes in Northern Europe.
-                This has led to increased maritime and aerial traffic to Arkhangelsk Oblast, a region impacted by the melting ice. Addressing this surge in traffic and capitalizing on the new opportunities, Heliexpress, a leading helicopter tour company, has announced a series of tours from Arkhangelsk Oblast. These tours offer breathtaking routes over Kong Karls Land, attracting thrill-seekers and nature enthusiasts alike. The company's decision to expand its operations in the region reflects the growing interest in Arctic tourism and the unique experiences it offers. However, there are concerns raised by environmentalists regarding the impact of this increased traffic on the wildlife and natural habitats in the Nordaust-Svalbard Nature Reserve.
-                With the melting ice, polar bears, walruses, and other marine animals already facing challenges to their survival, the rise in helicopter flights could further disturb their fragile ecosystems. Additionally, the Nordaust-Svalbard Nature Reserve, formerly a polar desert, has recently seen an unexpected growth of deciduous plants. This new vegetation signals a significant ecological shift, and environmentalists fear that helicopter landings in the region could cause damage to this burgeoning forestation. To express their concerns and draw attention to the potential harm posed by Heliexpress and other aircraft, environmentalists have organized a large-scale protest against the company. This protest, scheduled for June 1st, 2040, aims to raise awareness about the importance of preserving the delicate balance in the Nordaust-Svalbard Nature Reserve.
-                It is expected to attract participants and supporters from various corners, including local communities, conservation organizations, and concerned citizens. Amidst these events, the scenario highlights the ongoing impacts of climate change and the urgent need for sustainable practices in the face of a rapidly changing environment. It underscores the potential conflict between economic opportunities and ecological preservation, as the demand for thrilling experiences clashes with the imperative to protect vulnerable species and habitats. The outcome of this scenario will depend not only on the actions taken by Heliexpress and the protesters but also on the response of the relevant governments and global community to address the broader issues of climate change and its consequences." "scenario_name": "Melted_Caps", "date_range_start": "2040-05-30", "date_range_end": "2040-06-03", "countries_of_interest": [ "Ireland {Republic}", "Norway", "Russian Federation", "United Kingdom", "United States" ],
-                "regions_of_interest": [ "Northern Europe" ],
-                <end summary scenario>
-                 </scenario>
-                 
-                 Your tweet will be between the <output_format> tags:
-                     if the character's action is to post_url or post ONLY AND ALWAYS return answer in the format of ["{new_tweet}"].
-                     if the character's action is to retweet, or like, return answer in the format of ["{action}", "{tweet_id}"]. NOTE the tweet_id is given in the user's prompt.
-                     if character choose to reply, return answer in the format of ["{tweet_id}", "{new_tweet}"]."""},
-                {"role": "user", "content": prompt}
-                ],
-                max_tokens=150,
-                # random temeprature between 0.4 and 0.9
-                temperature=random.uniform(0.4, 0.9),
-            )
-            response_post_processed = {
-                "response": response.choices[0].message.content,
-            }
-        except Exception as e:
-            # switch clients
-            self.switch_client()
-            try:
-
-                response = self.client.chat.completions.create(
-                model=model_name,                
-                messages = [
-                {"role": "system", "content": """Given the user's past behavior and intents, generate a diverse set of tweets that converge on their typical style and content. 
-                The generated tweets should mimic the user's behavior as closely as possible, reflecting their interests, tone, and typical language use. 
-                Consider the user's past tweets, their commonly used phrases, the topics they often discuss, and the sentiment of their messages. 
-                Remember, the goal is not to simply replicate the user's past tweets, but to create new content that feels authentically like something the user would post.
-                <scenario>
-                In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land. This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. Grass Roots Environmental Organization: The environmental group "If Not Now, Then When?" (INNW) comprises a widespread network of activists around the globe, with significant concentrations in Australia, the United States (particularly the Pacific Northwest), Ireland, and the UK. Kaiara Willowbank, a prominent grassroots blogger for INNW, recently published a blog post addressing the issue at hand. In her post, Willowbank criticizes the Norwegian Government and its President for their silence on the matter. She argues that in such challenging times, it is crucial for leaders and nations to adopt a firmer stance in dealing with companies and countries, like Russia and Heliexpress LTD, that seek to exploit situations to their advantage.
-                Grass Roots Primary Source: "In these critical moments, silence is not just absence—it's acquiescence. It's essential that our world leaders, including the Norwegian Government, rise to the challenge and confront those who view our environmental crises as opportunities for exploitation. Russia and Heliexpress LTD are just the tip of the iceberg.
-                We need action, commitment, and transparency, now more than ever. Hold Norway to task, #ShameOnNorway," stated Kaiara Willowbank, a vocal advocate and blogger for "If Not Now, Then When?". International Environmental Organization: EcoVanguard Solutions, an international NGO, focuses on environmental issues in the Arctic Sea region, particularly pollution, due to the area's increased activity over recent years.
-                Anya Chatterjee-Smith, the Chief Communications Officer of their Arctic Sea Division, has publicly criticized Heliexpress LTD for not being transparent about how they plan to mitigate their impact on endangered species populations. Additionally, she has openly condemned Russia and Igor Petrovich Kuznetsov, the Governor of Arkhangelsk Oblast, for their disregard for the region's escalating environmental challenges, specifically pointing out their lack of concern for this pressing issue.
-                International Environmental Organization, Primary Source: "As the Chief Communications Officer of EcoVanguard Solutions' Arctic Sea Division, I must express our profound disappointment in the lack of transparency and concern from Heliexpress LTD, the Russian government, and particularly Governor Igor Petrovich Kuznetsov of Arkhangelsk Oblast. Their disregard for the critical environmental issues facing the Arctic Sea region, especially the threat to endangered species, is unacceptable.
-                Immediate action and open dialogue are essential to address these pressing challenges effectively. We need to work together to make sure our children and grandchildren have A Greener Tomorrow™" – Public Statement from Anya Chatterjee-Smith, CCO of EcoVanguard Solutions Arctic Sea Division. Environmental Economist Professor: Rowan Emerson, a socio-ecologist and environmental economist, recently spoke on Planetwise Broadcast Radio (PBR), emphasizing that EcoVanguard Solutions should collaborate with grassroots organizations like "If Not Now, Then When?" (INNW).
-                He highlighted that although INNW may lack the funding of larger organizations, they have a broader base of support and can mobilize more voices. Emerson pointed out that EcoVanguard's criticism of the Governor of Arkhangelsk Oblast and the President of Heliexpress, while excluding the Norwegian government, indicates a disconnect from the wider environmental movement—a perspective clearly demonstrated by INNW. Environmental Economist Professor, Primary Source: "Rowan Emerson criticizes EcoVanguard Solutions for their narrow focus on figures like the President of Heliexpress and Governor Igor Kuznetsov, overlooking the potential of grassroots mobilization through 'If Not Now, Then When?' and the need to engage with the Norwegian government and its president.
-                'True environmental progress demands that we harness grassroots energy and direct our advocacy towards all pivotal actors, including those at the highest levels of government. By sidelining groups like INNW and not mobilizing against broader targets such as Norway's leadership, we miss critical opportunities for impactful change,' Emerson argues." Yet To Comment: The following organizations and individuals have yet to comment, and therefore do not have any primary source information available. Norway Norwegian Ministry of Foreign Affairs Norwegian President, Ingrid Johansen Russia Ministry of Foreign Affairs of the Russian Federation Governor of Arkhangelsk Oblast, Petrovich Kuznetsov Organizations Heliexpress LTD People Member of Environmental Group "If Not Now, Then When?" Name: Kaiara Willowbank Username: @KaiaraNoBrakesWillow Chief Communications Officer (CCO) of INGO Environmental Organization "EcoVanguard Solutions" Name: Anya Chatterjee-Smith Username: @AnyaEVS Social Movement scholar from the United States (Socio-ecologist and Economics Professor from a small liberal arts college outside of Boston, MA) Name: Rowan Emerson Username: @RowanEmersonPhD Governor of Arkhangelsk Oblast, Russia. Name: Petrovich Kuznetsov Username: @Kuznetsov_RF Norwegian President Name: Ingrid Johansen Username: @IngridJohansen Organizations: "If Not Now, Then When," Grassroots Environmental Group Usernames: @innw & @innw_US Hashtags Used: #INNW #IfNotNowThenWhen #ShameOnNorway "EcoVanguard Solutions," International Non-Governmental Environmental Organization Username: @agreenertomorrowEVS Hashtags: #agreenertomorrow #EcoVanguardSolutions #ecomovement #ProtectNSReserve "Heliexpress LTD," Russian Helicopter Tour Company with new tours from Arkhangelsk Oblast passing over Kong Karls Land.
-                Username: @heliexpressLTD Hashtag: #heliexpresstours #helitours_RU Norwegian Ministry of Foreign Affairs Username: @NorwayMFA Ministry of Foreign Affairs of the Russian Federation Username: @MFA_Russia General Use Hashtags: #Artic #ArkhangelskOblast #EcoHellTours #GreenerEco
-                <begin summary scenario> 
-                "scenario_summary": "In 2040, the Arctic sea caps have melted, leading to increased maritime and aerial traffic to Arkhangelsk Oblast. Heliexpress has announced a new series of helicopter tours from Arkhangelsk Oblast, with routes flying over Kong Karls Land.
-                This surge in traffic has sparked concerns among environmentalists, who fear it may pose a threat to the polar bears, walruses, and other wildlife inhabiting the Nordaust-Svalbard Nature Reserve. The area, previously a polar desert, has recently seen a proliferation of deciduous plants. There are also concerns that helicopter landings in this region could damage this burgeoning forestation. In response, a large-scale protest against Heliexpress is scheduled for June 1, 2040. ", "scenario_description": "In the scenario known as Melted Caps, which takes place from May 30th to June 3rd, 2040, the melting of Arctic sea caps has caused significant changes in Northern Europe.
-                This has led to increased maritime and aerial traffic to Arkhangelsk Oblast, a region impacted by the melting ice. Addressing this surge in traffic and capitalizing on the new opportunities, Heliexpress, a leading helicopter tour company, has announced a series of tours from Arkhangelsk Oblast. These tours offer breathtaking routes over Kong Karls Land, attracting thrill-seekers and nature enthusiasts alike. The company's decision to expand its operations in the region reflects the growing interest in Arctic tourism and the unique experiences it offers. However, there are concerns raised by environmentalists regarding the impact of this increased traffic on the wildlife and natural habitats in the Nordaust-Svalbard Nature Reserve.
-                With the melting ice, polar bears, walruses, and other marine animals already facing challenges to their survival, the rise in helicopter flights could further disturb their fragile ecosystems. Additionally, the Nordaust-Svalbard Nature Reserve, formerly a polar desert, has recently seen an unexpected growth of deciduous plants. This new vegetation signals a significant ecological shift, and environmentalists fear that helicopter landings in the region could cause damage to this burgeoning forestation. To express their concerns and draw attention to the potential harm posed by Heliexpress and other aircraft, environmentalists have organized a large-scale protest against the company. This protest, scheduled for June 1st, 2040, aims to raise awareness about the importance of preserving the delicate balance in the Nordaust-Svalbard Nature Reserve.
-                It is expected to attract participants and supporters from various corners, including local communities, conservation organizations, and concerned citizens. Amidst these events, the scenario highlights the ongoing impacts of climate change and the urgent need for sustainable practices in the face of a rapidly changing environment. It underscores the potential conflict between economic opportunities and ecological preservation, as the demand for thrilling experiences clashes with the imperative to protect vulnerable species and habitats. The outcome of this scenario will depend not only on the actions taken by Heliexpress and the protesters but also on the response of the relevant governments and global community to address the broader issues of climate change and its consequences." "scenario_name": "Melted_Caps", "date_range_start": "2040-05-30", "date_range_end": "2040-06-03", "countries_of_interest": [ "Ireland {Republic}", "Norway", "Russian Federation", "United Kingdom", "United States" ],
-                "regions_of_interest": [ "Northern Europe" ],
-                <end summary scenario>
-                </scenario>
-                PAY SPECIAL ATTENTION TO THESE USERS AS THEY SET THE TONE FOR THE MOVEMENTS AND SCENARIO, carefully craft their tweets to match their goals, tones, and styles: 
-                    Governments:
-                    1.Norwegian Ministry of Foreign Affairs
-                    2.Norwegian President, Ingrid Johansen
-                    3.Ministry of Foreign Affairs of the Russian Federation
-                    4.Governor of Arkhangelsk Oblast, Petrovich Kuznetsov
-                    Organization:
-                    1.Heliexpress LTD
-                    People:   
-                    1.Member of Environmental Group "If Not Now, Then When?":
-                    1.1. Name: Kaiara Willowbank, Username: @KaiaraNoBrakesWillow, Chief Communications Officer (CCO) of INGO Environmental Organization "EcoVanguard Solutions"
-                    1.2. Name: Anya Chatterjee-Smith, Username: @AnyaEVS
-                    2.Social Movement scholar from the United States (Socio-ecologist and Economics Professor from a small liberal arts college outside of Boston, MA): 
-                    2.1. Name: Rowan Emerson, Username: @RowanEmersonPhD
-                    3.Governor of Arkhangelsk Oblast, Russia.
-                    3.1.Name: Petrovich Kuznetsov,Username: @Kuznetsov_RF
-                    4.Norwegian President
-                    4.1.Name: Ingrid Johansen,Username: @IngridJohansen
-                    5. Organizations:
-                    5.1. "If Not Now, Then When," Grassroots Environmental Group, Usernames: @innw & @innw_US, Hashtags Used: #INNW #IfNotNowThenWhen #ShameOnNorway
-                    5.2. "EcoVanguard Solutions," International Non-Governmental Environmental Organization, Username: @agreenertomorrowEVS, Hashtags: #agreenertomorrow #EcoVanguardSolutions #ecomovement #ProtectNSReserve
-                    5.3. "Heliexpress LTD," Russian Helicopter Tour Company with new tours from Arkhangelsk Oblast passing over Kong Karls Land.,Username: @heliexpressLTD,Hashtag: #heliexpresstours #helitours_RU
-                    5.4. Norwegian Ministry of Foreign Affairs,Username: @NorwayMFA
-                    5.5. Ministry of Foreign Affairs of the Russian Federation,Username: @MFA_Russia
-
-                Your tweet will be between the <output_format> tags:
-                     if the character's action is to post_url or post ONLY AND ALWAYS return answer in the format of ["{new_tweet}"].
-                     if the character's action is to retweet, or like, return answer in the format of ["{action}", "{tweet_id}"]. NOTE the tweet_id is given in the user's prompt.
-                     if character choose to reply, return answer in the format of ["{tweet_id}", "{new_tweet}"]."""},
-                {"role": "user", "content": prompt}
-                ],
-                max_tokens=150,
-                temperature=random.uniform(0.4, 0.9),
-                )
-                response_post_processed = {
-                    "response": response.choices[0].message.content,
-                }
-
-            except:
-
-                return f"An error occurred: {str(e)}"
-        # print("response_post_processed in generate_post", response_post_processed)
-        # response_post_processed = {'response': '["In light of the alarming news about Heliexpress\' helicopter tours threatening the fragile Arctic ecosystem, we must unite to protect our wildlife and natural habitats. It\'s time to say #NoToHeliTours and stand up for our planet! #EcoActionNow"]'}
-        # lets update the response_parsed based on the new output format which is based on the action:
-        #if the character's action is to post_url or post ONLY AND ALWAYS return answer in the format of ["{new_tweet}"].
-        #if the character's action is to retweet, or like, return answer in the format of ["{action}", "{tweet_id}"]. NOTE the tweet_id is given in the user's prompt.
-        #if character choose to reply, return answer in the format of ["{tweet_id}", "{new_tweet}"]."""},
-        list_response = json.loads(response_post_processed['response'])
-        if action == 'post' or action == 'post_url': # action is to post or post_url
-            selected_tweet = ' '.join([lr for lr in list_response])
-        elif action == 'retweet': # action can be retweet/like or reply
-            selected_tweet = int(list_response[1].replace(" ", ""))
-        elif action == 'reply':
-            replied_tweet_id = int(list_response[0].replace(" ", ""))
-            new_reply = list_response[1]
-            selected_tweet = (replied_tweet_id, new_reply)
-
-        return selected_tweet
-    
-    def process_gpt4_response(self, response, actions_today):
-        
-        action = None
-        selected_tweet = None
-        # Parse the GPT-4 response to extract the recommended action
-        gpt4_response = response['response'] 
-        # whole response is a string that looks like a list: ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"] let's convert it to a list
-        gpt4_response = gpt4_response.replace("[", "").replace("]", "").replace('"', "").split(",") # ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"]
-
-        
-        # check what the length of the response is
-        if len(gpt4_response) == 2: # its either post, post_url, retweet, or like
-            gpt4_action = gpt4_response[0]
-            if gpt4_action == 'retweet':
-                selected_tweet = 'RT:' + gpt4_response[1]
-            elif gpt4_action == 'post' or gpt4_action == 'post_url':
-                selected_tweet = gpt4_response[1]
-            elif gpt4_action == 'like':
-                selected_tweet = gpt4_response[1]
-        if len(gpt4_response) == 3:
-            gpt4_action = gpt4_response[0]
-            if gpt4_action == 'reply':
-                selected_tweet = gpt4_response[0]
-                selected_tweet = 'RE:' + gpt4_response[1] + gpt4_response[2]
-         #print("parsed gpt4 response in process_gpt4_response")
-        # Ensure the action is within the available actions
-        if 'post_url' in gpt4_action and actions_today.get('post_url', 0) > 0:
-            action = 'post_url'
-            actions_today['post_url'] -= 1
-            actions_today['post'] -= 1
-        elif 'post' in gpt4_action and actions_today.get('post', 0) > 0:
-            action = 'post'
-            actions_today['post'] -= 1
-            actions_today['post_url'] -= 1 # Assume that a tweet with a URL is also a tweet
-        elif 'retweet' in gpt4_action and actions_today.get('retweet', 0) > 0:
-            action = 'retweet'
-            actions_today['retweet'] -= 1
-        elif 'reply' in gpt4_action and actions_today.get('reply', 0) > 0:
-            action = 'reply'
-            actions_today['reply'] -= 1
-        elif 'like' in gpt4_action and actions_today.get('like', 0) > 0:
-            action = 'like'
-            actions_today['like'] -= 1
-
-        # # Select a tweet for retweet, reply, or like if needed
-        # if action in ['retweet', 'reply', 'like']:
-        #     selected_tweet = random.choice(tweets) if tweets else None
-        
-        return action, selected_tweet
-
-    def construct_prompt(self, user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history):
-        # based on user role, feed the background info. for each user it is saved in self.basic_user_properties, self.core_user_properties, self.org_user_properties
-        # this will be the background info paragraph
+    @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=5, max=40))
+    def generate_post(self, user: dict, action: str, updated_user_polarity: int, updated_user_subjectivity: int, tweet_history: list, replying_tweet: str=None, reaction_to_tweet: str=None):
+        input_token_count = 0
+        output_token_count = 0
         background_info = ""
         if self.users_role[user] == 'org':
             for prop in self.org_user_properties:
@@ -564,34 +491,253 @@ class WorldModel:
         elif self.users_role[user] == 'basic':
             for prop in self.basic_user_properties:
                 background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
-        
-        prompt = (
-            f"character role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
-            f"character background info: {background_info}.\n"
-            f"character's sentiment: user's polarity (if + then anti-env and if - then pro-env): {user_polarity}, user tweets' subjectivity: {user_subjectivity}\n"
-            f"Current time: {self.current_time}.\n"
-            f"character's action: {action}.\n"            
-        )
 
-        # add to prompt if the action is retweet, reply, or like
-        if float(self.get_user_property(user, 'polarity')) > 0: # the user is a supporter of this negative cause
-            prompt += f"Choose one or two hashtags (anti-environment): {[hashtag for hashtag in bad_hashtags]}.\n"
-        else:
-            prompt += f"Choose one or two hashtags (pro-environment): {[hashtag for hashtag in good_hashtags]}.\n"
+        background_info += f"Considering the user's information, write a tweet such that it would be relevant to their profile."
+        background_info += f"To do that, you should make shrewd note on the users profile, extract at least 4-6 key points from the user's profile and generate realistic tweets based on those points. Use those inferences to generate one key point about their tweet style."
+        background_info += f"Please make sure the tweets are relevant to the user's profile and it is okay to be creative with the tweets, some tweets might be aggressive or sensitive (a little) and that is okay."
+        background_info += f"Once done with making those points, please generate a tweet matching the observations made concerning the following situation and user's tweet feed: "# : [<list_of_inferences_on_character>][<list_of_new_tweets_based_on_inferences>]."
+        background_info += """
+                    The Situation::
+                    In 2040, Arctic sea ice has melted significantly.
+                    This has led to more ships and aircraft traveling to Arkhangelsk Oblast in Russia.
+                    A company called Heliexpress is now offering helicopter tours over Kong Karls Land.
+
+                    Environmental Concerns::
+                    The increased traffic might harm polar bears, walruses, and other wildlife in the Nordaust-Svalbard Nature Reserve.
+                    The area, once a polar desert, now has trees and plants growing.
+                    There are worries that helicopter landings could damage this new plant life.
+
+                    Reactions::
+                    Environmental Group "If Not Now, Then When?" (INNW):
+                    Planning a big protest on June 1, 2040
+                    Criticizing the Norwegian government for not speaking up
+
+                    EcoVanguard Solutions:
+                    Asking Heliexpress to explain how they'll protect endangered animals
+                    Criticizing Russian officials for not caring about environmental issues
+
+                    Expert Opinion:
+                    Professor Rowan Emerson suggests big organizations should work with smaller groups like INNW for better results
+
+                    Key Players::
+                    Heliexpress LTD: The company offering helicopter tours
+                    Norwegian and Russian governments
+                    Environmental groups: INNW and EcoVanguard Solutions\n"""
+
+        background_info += f"Current time: {self.current_time}.\n"
+        # background_info += f"Once done with making those points, please ONLY return the new tweets in the following format: [<list_of_inferences_on_character>][<list_of_new_tweets_based_on_inferences>]."
+        if updated_user_polarity > 0:
+            background_info += f"The user supports the viewpoint of Heliexpress LTD with a subjectivity score of {updated_user_subjectivity}. "
+            if action in ['post', 'post_url']:
+                background_info += f"User can use these hashtags: {random.sample(bad_hashtags, 3)}"
+        elif updated_user_polarity < 0:
+            background_info += f"The user has is not happy with what Heliexpress LTD is doing with a subjectivity score of {updated_user_subjectivity}."            
+            if action in ['post', 'post_url']:
+                background_info += f"User can use these hashtags: {random.sample(good_hashtags, 3)}"
+        
+        if len(tweet_history['user_tweets']) > 0:
+            background_info += f"User's 5 most recent tweets: {tweet_history['user_tweets']}."
 
         if action in ['retweet', 'reply']:
-            prompt += f"\nSelected tweet for {action}: {original_tweet}.\n"
+            background_info += f"\nYou are {action}'ing to the following tweet, make an appropriate {action} to this tweet: {reaction_to_tweet}.\n"
+        elif action in ['post', 'post_url']:
+            background_info += f"\nUser's action is {action}\n"
+            if action == 'post_url':
+                background_info += f"When posting url you need to include a (seemingly real) url in the tweet.\n"
         if action in ['post', 'post_url', 'retweet', 'reply']:
-            prompt += f"\nUser's tweet feed in (tweet_id, tweet) format:\n <tweets> \n {[(tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history]}.\n </tweets>\n"
+            background_info += f"\nUser's tweet feed in (tweet_id, tweet) format:\n <tweets_feed> \n {list(set((tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history['neighbors_tweets']))}.\n </tweets_feed>\n"
 
-        prompt += f"Considering the user's preferences, bio, time of day, and available actions, "
-        prompt += f"Choose the most reasonable action the user should take next (post, post_url, retweet, reply)?"
-        return prompt
+
+        input_token_count += len(enc.encode(background_info))
+        input_token_count += len("You are a social media simulation assistant. You are helping a user generate tweets based on their profile. You are allowed to generate a variety of tweets with different sentiments, and tonalities.")
+        
+        max_tokens = 150
+
+        while True:
+            try:
+                response = self.client.beta.chat.completions.parse(
+                    model="gpt-4o-mini",                
+                    messages = [
+                        {"role": "system", "content": "You are a social media simulation assistant. You are helping a user generate tweets based on their profile. You are allowed to generate a variety of tweets with different sentiments, and tonalities. Action must be the same as provided by the user. Allowed actions are 'post', 'post_url', 'retweet', 'reply'"},
+                        {"role": "user", "content": background_info},
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=random.uniform(0.5, 0.9),
+                    response_format=UserTweets
+                )
+                
+                output_token_count += len(enc.encode(response.choices[0].message.content))
+                parsed_response = response.choices[0].message.parsed
+                # print("Parsed response ", parsed_response)
+                if parsed_response:
+                    action_by_gpt = parsed_response.action
+                    if action_by_gpt == action:
+                        break
+                    else:
+                        background_info += f"Your action must match the action provided by the user. You need to generate {action} but the generated action is {action_by_gpt}."
+                        print(f"Unexpected response format for user {user['aesop_id']}. Retrying...")
+                        time.sleep(30)
+                        max_tokens += 50
+                    break
+                else:
+                    print(f"Unexpected response format for user {user['aesop_id']}. Retrying...")
+                    time.sleep(30)
+                    max_tokens += 50  # Increase max_tokens for the next attempt
+            
+            except openai.LengthFinishReasonError:
+                print(f"LengthFinishReasonError for user {user['aesop_id']}. Increasing max_tokens and retrying...")
+                max_tokens += 50  # Increase max_tokens and retry
+            
+            except Exception as e:
+                print(f"Error processing user {user['aesop_id']}: {str(e)}")
+                user['error'] = str(e)
+                break
+        
+        # print("Parsed response ", parsed_response)
+        if action == 'post' or action == 'post_url': # action is to post or post_url
+            return parsed_response.tweet, input_token_count, output_token_count
+        elif action == 'retweet': # action can be retweet/like or reply
+            return parsed_response.tweet, parsed_response.retweet_tweet_id, input_token_count, output_token_count
+        elif action == 'reply':
+            return parsed_response.tweet, parsed_response.reply_tweet_id, input_token_count, output_token_count
+
+    
+    # def generate_post(self, user, action, user_polarity, user_subjectivity, original_tweet=None, hashtags=None, tweet_history=None):
+    #     # Use GPT-4 to generate the next action
+    #     prompt = self.construct_prompt(user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history)
+    #     # 20% chance of choosing gpt-4o instead of gpt-4o-mini
+    #     if random.random() < 0.05:
+    #         model_name = "gpt-4o"
+    #     else:
+    #         model_name = "gpt-4o-mini"
+
+    #     if random.random() < 0.7:
+    #         self.client = self.client
+    #     else:
+    #         self.client = self.client2
+    #     try:
+    #         response = self.client.chat.completions.create(
+    #             model=model_name,                
+    #             messages = [
+    #             {"role": "system", "content": """Given the user's past behavior and intents, generate a diverse tweet that aligns with personality, interests, and user's polarity towards the given scenario and time of the event (there is an impending protest on July 1st). """},
+    #             {"role": "user", "content": prompt},
+    #             ],
+    #             max_tokens=150,
+    #             # random temeprature between 0.4 and 0.9
+    #             temperature=random.uniform(0.4, 0.9),
+    #         )
+    #         response_post_processed = {
+    #             "response": response.choices[0].message.content,
+    #         }
+    #     except Exception as e:
+    #         # switch clients
+    #         print("Switching client")
+    #         self.switch_client()
+    
+    #     list_response = json.loads(response_post_processed['response'])
+    #     print("list_response in generate_post", list_response)
+    #     if action == 'post' or action == 'post_url': # action is to post or post_url
+    #         selected_tweet = ' '.join([lr for lr in list_response])
+    #     elif action == 'retweet': # action can be retweet/like or reply
+    #         selected_tweet = int(list_response[1].replace(" ", ""))
+    #     elif action == 'reply':
+    #         replied_tweet_id = int(list_response[0].replace(" ", ""))
+    #         new_reply = list_response[1]
+    #         selected_tweet = (replied_tweet_id, new_reply)
+
+    #     return selected_tweet
+    
+    # def process_gpt4_response(self, response, actions_today):
+        
+    #     action = None
+    #     selected_tweet = None
+    #     # Parse the GPT-4 response to extract the recommended action
+    #     gpt4_response = response['response'] 
+    #     # whole response is a string that looks like a list: ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"] let's convert it to a list
+    #     gpt4_response = gpt4_response.replace("[", "").replace("]", "").replace('"', "").split(",") # ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"]
+
+        
+    #     # check what the length of the response is
+    #     if len(gpt4_response) == 2: # its either post, post_url, retweet, or like
+    #         gpt4_action = gpt4_response[0]
+    #         if gpt4_action == 'retweet':
+    #             selected_tweet = 'RT:' + gpt4_response[1]
+    #         elif gpt4_action == 'post' or gpt4_action == 'post_url':
+    #             selected_tweet = gpt4_response[1]
+    #         elif gpt4_action == 'like':
+    #             selected_tweet = gpt4_response[1]
+    #     if len(gpt4_response) == 3:
+    #         gpt4_action = gpt4_response[0]
+    #         if gpt4_action == 'reply':
+    #             selected_tweet = gpt4_response[0]
+    #             selected_tweet = 'RE:' + gpt4_response[1] + gpt4_response[2]
+    #      #print("parsed gpt4 response in process_gpt4_response")
+    #     # Ensure the action is within the available actions
+    #     if 'post_url' in gpt4_action and actions_today.get('post_url', 0) > 0:
+    #         action = 'post_url'
+    #         actions_today['post_url'] -= 1
+    #         actions_today['post'] -= 1
+    #     elif 'post' in gpt4_action and actions_today.get('post', 0) > 0:
+    #         action = 'post'
+    #         actions_today['post'] -= 1
+    #         actions_today['post_url'] -= 1 # Assume that a tweet with a URL is also a tweet
+    #     elif 'retweet' in gpt4_action and actions_today.get('retweet', 0) > 0:
+    #         action = 'retweet'
+    #         actions_today['retweet'] -= 1
+    #     elif 'reply' in gpt4_action and actions_today.get('reply', 0) > 0:
+    #         action = 'reply'
+    #         actions_today['reply'] -= 1
+    #     elif 'like' in gpt4_action and actions_today.get('like', 0) > 0:
+    #         action = 'like'
+    #         actions_today['like'] -= 1
+
+    #     # # Select a tweet for retweet, reply, or like if needed
+    #     # if action in ['retweet', 'reply', 'like']:
+    #     #     selected_tweet = random.choice(tweets) if tweets else None
+        
+    #     return action, selected_tweet
+
+    # def construct_prompt(self, user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history):
+    #     # based on user role, feed the background info. for each user it is saved in self.basic_user_properties, self.core_user_properties, self.org_user_properties
+    #     # this will be the background info paragraph
+    #     background_info = ""
+    #     if self.users_role[user] == 'org':
+    #         for prop in self.org_user_properties:
+    #             background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
+    #     elif self.users_role[user] == 'core':
+    #         for prop in self.core_user_properties:
+    #             background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
+    #     elif self.users_role[user] == 'basic':
+    #         for prop in self.basic_user_properties:
+    #             background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
+        
+    #     prompt = (
+    #         f"character role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
+    #         f"character background info: {background_info}.\n"
+    #         f"character's sentiment: user's polarity (if + then anti-env and if - then pro-env): {user_polarity}, user tweets' subjectivity: {user_subjectivity}\n"
+    #         f"Current time: {self.current_time}.\n"
+    #         f"character's action: {action}.\n"            
+    #     )
+
+    #     # add to prompt if the action is retweet, reply, or like
+    #     if float(self.get_user_property(user, 'polarity')) > 0: # the user is a supporter of this negative cause
+    #         prompt += f"Choose one or two hashtags (anti-environment): {[hashtag for hashtag in bad_hashtags]}.\n"
+    #     else:
+    #         prompt += f"Choose one or two hashtags (pro-environment): {[hashtag for hashtag in good_hashtags]}.\n"
+
+    #     if action in ['retweet', 'reply']:
+    #         prompt += f"\nSelected tweet for {action}: {original_tweet}.\n"
+    #     if action in ['post', 'post_url', 'retweet', 'reply']:
+    #         prompt += f"\nUser's tweet feed in (tweet_id, tweet) format:\n <tweets> \n {[(tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history]}.\n </tweets>\n"
+
+    #     prompt += f"Considering the user's preferences, bio, time of day, and available actions, "
+    #     prompt += f"Choose the most reasonable action the user should take next (post, post_url, retweet, reply)?"
+    #     return prompt
     
     def take_action_for_basic_user(self, user, tweets, actions_today):
          #print("Taking action for basic user")
         # Define a base action probability for basic users
-        base_action_probability = 0.7
+        base_action_probability = 0.9
         
         # Dynamic adjustment based on context (e.g., time of day, user engagement)
         time_of_day_weight = 1.0
@@ -611,18 +757,19 @@ class WorldModel:
         # Decide whether to take an action
         if random.random() < action_probability:
             user_context = {'time_of_day': 'morning' if 6 <= self.current_time.hour < 12 else 'evening'}
-            action = self.select_best_action(actions_today, user_context)
+            action = self.select_best_action(user, actions_today, user_context)
+            # action = 'like' #change this
         else:
             action = None
 
-        selected_tweet = self.select_tweet_for_action(action, tweets)
+        selected_tweet = self.select_tweet_for_action(action, tweets['neighbors_tweets'])
          #print("action in take_action_for_basic_user", action);  #print("selected tweet ", selected_tweet)
         return action, selected_tweet  
 
     def take_action_for_advanced_user(self, user, tweets, actions_today):
          #print("Taking action for basic user")
         # Define a base action probability for basic users
-        base_action_probability = 0.8
+        base_action_probability = 0.9
         
         # Dynamic adjustment based on context (e.g., time of day, user engagement)
         time_of_day_weight = 1.0
@@ -642,11 +789,12 @@ class WorldModel:
         # Decide whether to take an action
         if random.random() < action_probability:
             user_context = {'time_of_day': 'morning' if 6 <= self.current_time.hour < 12 else 'evening'}
-            action = self.select_best_action(actions_today, user_context)
+            action = self.select_best_action(user, actions_today, user_context)
+            # action = 'like' #change this
         else:
             action = None
 
-        selected_tweet = self.select_tweet_for_action(action, tweets)
+        selected_tweet = self.select_tweet_for_action(action, tweets['neighbors_tweets'])
          #print("action in take_action_for_basic_user", action);  #print("selected tweet ", selected_tweet)
         return action, selected_tweet
     
@@ -662,22 +810,28 @@ class WorldModel:
         
         return engagement_factor
     
-    def select_best_action(self, actions_today, user_context):
+    def select_best_action(self, user, actions_today, user_context):
+        # TODO (later): users weights/preferences can be different, not all users act alike.
+        # load from user json file
+        # Define weights for each action
+        weights_factors = self.get_user_property(user, 'action_weight')
+
         weights = {
-            'like': 1.0,
-            'reply': 1.5,
-            'post': 2.0,
-            'retweet': 1.2,
-            'post_url': 2.5,
+            'like': weights_factors['like_weight'],
+            'reply':  weights_factors['reply_weight'],
+            'post': weights_factors['tweet_weight'],
+            'retweet': weights_factors['retweet_weight'],
+            'post_url': weights_factors['tweet_url_weight'],
         }
 
         # Adjust weights based on context
         if user_context.get('time_of_day') == 'morning':
-            weights['post'] *= 1.2
-            weights['post_url'] *= 1.1
+            weights['tweet_weight'] *= 1.2
+            weights['tweet_url_weight'] *= 1.1
         elif user_context.get('time_of_day') == 'evening':
-            weights['like'] *= 1.3
-            weights['reply'] *= 1.2
+            weights['retweet_weight'] *= 1.1
+            weights['like_weight'] *= 1.3
+            weights['reply_weight'] *= 1.2
 
         # Calculate the scores
         action_scores = {action: count * weights[action] for action, count in actions_today.items() if count > 0}
@@ -686,6 +840,7 @@ class WorldModel:
 
         # Convert scores to probabilities
         total_score = sum(action_scores.values())
+        total_score = 0
         probabilities = {action: score / total_score for action, score in action_scores.items()}
 
         # Choose an action based on probabilities
@@ -702,32 +857,64 @@ class WorldModel:
         if not tweets:
             return None
         
+        influence_weights_by_role = {
+            'org': 6,
+            'core': 5,
+            'basic': 1,
+        }
+
+        # first check who the owner's rules of tweets are, it's stored in each tweet's data
+        # if the owner is an org, then the tweet is more likely to be influential
+        # if the owner is a core, then the tweet is less likely to be influential
+        # if the owner is a basic, then the tweet is less likely to be influential
+        owner_roles = [self.users_role[tweet[1]['owner']] for tweet in tweets]
+        
         # Calculate the influence score for each tweet
         influence_scores = {tweet[0]: self.calculate_influence_score(tweet[0]) for tweet in tweets}
+
+
+        # Apply the role-based weights
+        for tweet, role in zip(tweets, owner_roles):
+            influence_scores[tweet[0]] *= influence_weights_by_role[role]
+
+
+        # Randomly select a tweet based on the influence score
+        total_score = sum(influence_scores.values())
+        if total_score == 0:
+            return random.choice(tweets)[0]
+        probabilities = {tweet: score / total_score for tweet, score in influence_scores.items()}
+        chosen_tweet = random.choices(list(probabilities.keys()), list(probabilities.values()))[0]
+
+        return chosen_tweet
         
-        # Select the tweet with the highest influence score
-        return max(influence_scores, key=influence_scores.get)
+        
 
     def calculate_influence_score(self, tweet):
         # Simple influence score based on likes, retweets, and replies
         tweet_data = self.posts_graph.nodes[tweet]
         return 0.4 * tweet_data.get('likes', 0) + 0.3 * tweet_data.get('retweets', 0) + 0.3 * len(tweet_data.get('replies', []))
     
-    def propagate_information(self):
-        for edge in self.graph.edges():
-            source, target = edge
-            source_user = self.graph.nodes[source]
-            target_user = self.graph.nodes[target]
+    # def propagate_information(self):
+    #     for edge in self.graph.edges():
+    #         source, target = edge
+    #         source_user = self.graph.nodes[source]
+    #         target_user = self.graph.nodes[target]
             
-            for post in self.read_tweet_history(source_user):
-                if post not in self.read_tweet_history(target_user):
-                    self.add_to_tweet_history(target_user, post)
+    #         # for post in self.read_tweet_history(source_user):
+    #         #     if post not in self.read_tweet_history(target_user):
+    #         #         self.add_to_tweet_history(target_user, post)
+    #         # replace this with graph retrieval
+    #         source_tweets = self.get_recent_tweets_from_graph(source_user)
+    #         target_tweets = self.get_recent_tweets_from_graph(target_user)
+    #         for tweet in source_tweets['user_tweets']:
+    #             if tweet not in target_tweets['user_tweets']:
+    #                 self.add_to_tweet_history(target_user, tweet[0])
 
-    def get_world_state(self, user):
-        return {
-            'current_time': self.current_time,
-            'read_tweet_history': self.read_tweet_history(user)[-15:],  # Limit to last 15 tweets
-        }
+    # def get_world_state(self, user):
+    #     return {
+    #         'current_time': self.current_time,
+    #         'read_tweet_history': self.read_tweet_history(user)[-15:],  # Limit to last 15 tweets
+    #     }
     
     def read_tweet_history(self, user):
         def get_user_bio(bios, user):
@@ -780,16 +967,31 @@ class WorldModel:
 
         user_bio["tweets_simulation"].append(tweet)
 
-    def get_recent_tweets_from_graph(self, user, limit=15):
+    @staticmethod
+    def parse_timestamp(timestamp):
+            if isinstance(timestamp, str):
+                try:
+                    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S')
+                except ValueError:
+                    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M')
+            return timestamp
+    
+    def get_recent_tweets_from_graph(self, user, limit=15, user_past_tweet_limit=5):
         # TODO (later); more advanced idea to fetch all tweets from the user's network as well as friends of friends
         # TODO (later); we can then have a machine learning model to predict which tweets are most likely to be interacted by the user and show those
         # Start by fetching tweets from the user's own history
         user_tweets = [(n, data) for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
-         #print(f"{user_tweets=}")
-        
-        # Sort by timestamp to get the most recent tweets
-        ## updated the sorted_user_tweets to the new data structure: [(1, {'content': None, 'owner': 'fa3bd4fe-30ee-48cd-bf25-6ec16c76ff52', 'timestamp': datetime.datetime(2040, 5, 30, 0, 0), 'likes': 0, 'retweets': 0, 'replies': []})]
+        # Convert all timestamps to datetime objects
+        for tweet in user_tweets:
+            tweet[1]['timestamp'] = self.parse_timestamp(tweet[1]['timestamp'])
         sorted_user_tweets = sorted(user_tweets, key=lambda n: n[1]['timestamp'], reverse=True)
+
+        user_tweet_weights = [self.calculate_influence_score(tweet[0]) for tweet in sorted_user_tweets]
+        if len(user_tweet_weights) == 0 or sum(user_tweet_weights) == 0: # check if the there are no tweets history or interactions
+            sorted_user_tweets = sorted_user_tweets[:user_past_tweet_limit]
+        else:
+            sorted_user_tweets = [tweet for tweet in random.choices(sorted_user_tweets, weights=user_tweet_weights, k=user_past_tweet_limit)]
+        
 
          #print(f"{sorted_user_tweets=}")
         # Now expand to connected users (neighbors) to fetch their tweets
@@ -798,41 +1000,40 @@ class WorldModel:
 
         for connected_user in connected_users:
             connected_tweets.extend([(n,data) for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
-         #print(f"{connected_tweets=}")
         # Sort connected tweets by timestamp as well
+        for tweet in connected_tweets:
+            tweet[1]['timestamp'] = self.parse_timestamp(tweet[1]['timestamp'])
         sorted_connected_tweets = sorted(connected_tweets, key=lambda n: n[1]['timestamp'], reverse=True)
-        
-        # Combine the user's tweets with connected tweets and limit the result
-        all_sorted_tweets = sorted_user_tweets + sorted_connected_tweets
-         #print(f"{all_sorted_tweets=}")
-         #print(f"{sorted_connected_tweets=}")
-        #TODO: Choose tweets based on their weight instead of just selecting the first n - we can use calculate_influence_score
-        tweet_weights = [self.calculate_influence_score(tweet[0]) for tweet in all_sorted_tweets]
-        # check if the tweet_weights is empty or has zero values
-        if len(tweet_weights) == 0 or sum(tweet_weights) == 0:
-            return all_sorted_tweets[:limit]
-        recent_tweets = [tweet for tweet in random.choices(all_sorted_tweets, weights=tweet_weights, k=limit)]
-        
-        return recent_tweets
-    
-    def get_influential_tweets(self, user, limit=15):
-        # Calculate degree centrality for each tweet in the user's neighborhood
-        user_tweets = [n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
-        connected_users = list(self.graph.neighbors(user))
-        
-        connected_tweets = []
-        for connected_user in connected_users:
-            connected_tweets.extend([n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
-        
-        all_tweets = user_tweets + connected_tweets
-        
-        # Sort tweets by their degree (number of interactions)
-        influential_tweets = sorted(all_tweets, key=lambda n: self.posts_graph.degree(n), reverse=True)
 
-        # Randomly sample n_limit of all_tweets weighted by their degree
-        sampled_tweets = random.choices(influential_tweets, weights=[self.posts_graph.degree(n) for n in influential_tweets], k=limit)
+        network_tweet_weights = [self.calculate_influence_score(tweet[0]) for tweet in sorted_connected_tweets]
+        if len(network_tweet_weights) == 0 or sum(network_tweet_weights) == 0: # check if the there are no tweets history or interactions
+            sorted_connected_tweets = sorted_connected_tweets[:limit]
+        else:
+            sorted_connected_tweets = [tweet for tweet in random.choices(sorted_connected_tweets, weights=network_tweet_weights, k=limit)]
         
-        return sampled_tweets
+        #TODO: Choose tweets based on their weight instead of just selecting the first n - we can use calculate_influence_score
+
+
+        return {'user_tweets' : sorted_user_tweets, 'neighbors_tweets': sorted_connected_tweets}
+    
+    # def get_influential_tweets(self, user, limit=15):
+    #     # Calculate degree centrality for each tweet in the user's neighborhood
+    #     user_tweets = [n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == user]
+    #     connected_users = list(self.graph.neighbors(user))
+        
+    #     connected_tweets = []
+    #     for connected_user in connected_users:
+    #         connected_tweets.extend([n for n, data in self.posts_graph.nodes(data=True) if data.get('owner') == connected_user])
+        
+    #     all_tweets = user_tweets + connected_tweets
+        
+    #     # Sort tweets by their degree (number of interactions)
+    #     influential_tweets = sorted(all_tweets, key=lambda n: self.posts_graph.degree(n), reverse=True)
+
+    #     # Randomly sample n_limit of all_tweets weighted by their degree
+    #     sampled_tweets = random.choices(influential_tweets, weights=[self.posts_graph.degree(n) for n in influential_tweets], k=limit)
+        
+    #     return sampled_tweets
 
     def save_tweets(self, filepath):
         all_tweets = []
@@ -895,12 +1096,12 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
     # Measure the time taken for the simulation
     start_time = time.time()
     while world.current_time <= world.end_date:
-        # world.simulate_social_media_activity()
-        world.simulate_social_media_activity_parallel()
+        world.simulate_social_media_activity()
+        # world.simulate_social_media_activity_parallel2()
         
         if world.current_time.minute == 0:  # Log every hour
             print(f"Simulation time: {world.current_time}, time elapsed: {time.time() - start_time:.2f} seconds.")
-            world.save_tweets(f'simulation_results_{world.current_time}-parallel-sep2-network438.json')
+            world.save_tweets(f'simulation_results_{world.current_time}-parallel2-sep2-network438.json')
 
 
 
@@ -911,11 +1112,12 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
 if __name__ == "__main__":
     # Run the simulation
     network_path = 'social_network_med_438.gml'
-    core_biography_path = 'sep2_core_characters_fixed_ids.json'
-    basic_biography_path = 'sep2_basic_characters_fixed_ids.json'
-    org_biography_path = 'sep2_org_characters_fixed_ids.json'
+    core_biography_path = 'sep2.1-core_final.json'
+    basic_biography_path = 'sep2.1-ordinary_final.json'
+    org_biography_path = 'sep2.1-org_final.json'
 
-    start_date = datetime(2040, 5, 30)
-    end_date = datetime(2040, 6, 4)
+    start_date = datetime(2040, 5, 30, 14)
+    end_date = datetime(2040, 5, 30, 15)
+    # end_date = datetime(2040, 6, 4)
     final_state = run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     print("Simulation completed.")
