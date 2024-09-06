@@ -649,7 +649,7 @@ class WorldModel:
                     model="gpt-4o-mini",                
                     messages = [
                         # {"role": "system", "content": "You are a social media simulation assistant. You are helping a user generate tweets based on their profile. You are allowed to generate a variety of tweets with different sentiments, and tonalities. Action must be the same as provided by the user. Allowed actions are 'post', 'post_url', 'retweet', 'reply'"},
-                        {"role": "system", "content": "You are simulating a human thought process based on their biography, current events, and available information. Allowed actions are 'post', 'post_url', 'retweet', 'reply'"},
+                        {"role": "system", "content": "Your task is to generate tweets that matches what the Twitter user will generate. Allowed actions are 'post', 'post_url', 'retweet', 'reply'. Action must be the same as provided by the user. Use a different format than just: text:emoji:hashtag."},
                         {"role": "user", "content": background_info},
                     ],
                     max_tokens=max_tokens,
