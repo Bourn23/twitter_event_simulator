@@ -473,7 +473,6 @@ class WorldModel:
             # pass user, user_polarity, user_subjectivity to generate_post
             tweet_feed = self.get_recent_tweets_from_graph(user)
             new_post, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
-            print("adding post to the graph ", new_post, post_id)
             self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
 
@@ -570,7 +569,7 @@ class WorldModel:
     def generate_post(self, user: dict, action: str, updated_user_polarity: int, updated_user_subjectivity: int, tweet_history: list, screen_name: str=None, reaction_to_tweet: str=None):
         input_token_count = 0
         output_token_count = 0
-        background_info = ""
+        background_info = "You are a Twitter user with the following profile: "
         if self.users_role[user] == 'org':
             for prop in self.org_user_properties:
                 background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
@@ -581,10 +580,8 @@ class WorldModel:
             for prop in self.basic_user_properties:
                 background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
 
-        background_info += f"Considering the user's information, write a tweet such that it would be relevant to their profile."
-        background_info += f"To do that, you should make shrewd note on the users profile, a relevant key points from the user's profile and behavior and generate a realistic tweet based on those points."
-        background_info += f"Please make sure the tweets are relevant to the user's profile and it is okay to be creative with the tweets, some tweets might be aggressive or sensitive (a little) and that is okay."
-        background_info += f"Once done with making those points, please generate a tweet matching the observations made concerning the following situation and user's tweet feed: "
+        # background_info += f"Please make sure the tweets are relevant to the user's profile and it is okay to be creative with the tweets, some tweets might be aggressive or sensitive (a little) and that is okay."
+        background_info += f"The world's current situation:"
         background_info += """
                     The Situation::
                     In 2040, Arctic sea ice has melted significantly.
@@ -615,30 +612,32 @@ class WorldModel:
 
         user_nationality = self.get_user_property(user, 'nationality')
         user_time = self.convert_time_by_nationality(self.current_time, "American", user_nationality)
-        background_info += f"User's current time: {user_time}.\n"
+        background_info += f"Time: {user_time}.\n"
         # background_info += f"Once done with making those points, please ONLY return the new tweets in the following format: [<list_of_inferences_on_character>][<list_of_new_tweets_based_on_inferences>]."
         if updated_user_polarity > 0:
-            background_info += f"The user supports the viewpoint of Heliexpress LTD with a subjectivity score of {updated_user_subjectivity}. "
+            background_info += f"You support the viewpoint of Heliexpress LTD with a subjectivity score of {updated_user_subjectivity}. "
             if action in ['post', 'post_url']:
-                background_info += f"User may choose to use these hashtags: {random.sample(bad_hashtags, 3)}"
+                background_info += f"If you want to use hashtags, you may use these: {random.sample(bad_hashtags, 3)}"
         elif updated_user_polarity < 0:
-            background_info += f"The user has is not happy with what Heliexpress LTD is doing with a subjectivity score of {updated_user_subjectivity}."            
+            background_info += f"You are not happy with what Heliexpress LTD is doing with a subjectivity score of {updated_user_subjectivity}."            
             if action in ['post', 'post_url']:
-                background_info += f"User may choose to use these hashtags: {random.sample(good_hashtags, 3)}"
+                background_info += f"If you want to use hashtags, you may use these: {random.sample(good_hashtags, 3)}"
         
         if len(tweet_history['user_tweets']) > 0:
-            background_info += f"User's 5 most recent tweets: {tweet_history['user_tweets']}."
+            background_info += f"Your past activity: {tweet_history['user_tweets']}."
+
+        if action in ['post', 'post_url', 'retweet', 'reply']:
+            background_info += f"\nYou current feed in (tweet_id, tweet) format:\n <tweets_feed> \n {list(set((tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history['neighbors_tweets']))}.\n </tweets_feed>\n"
+
+
 
         if action in ['retweet', 'reply']:
-            background_info += f"\nYou are {action}'ing to the following tweet, make an appropriate {action} to this tweet: username: {reaction_to_tweet} - tweet: {reaction_to_tweet}.\n"
+            background_info += f"\nBased on your biography, past activity, and current feed, you decided to {action} to the following tweet by username: {reaction_to_tweet} - tweet: {reaction_to_tweet}.\n"
         elif action in ['post', 'post_url']:
             background_info += f"\nUser's action is {action}\n"
             if action == 'post_url':
                 background_info += f"When posting url you need to include a (seemingly real) url in the tweet.\n"
-        if action in ['post', 'post_url', 'retweet', 'reply']:
-            background_info += f"\nUser's tweet feed in (tweet_id, tweet) format:\n <tweets_feed> \n {list(set((tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history['neighbors_tweets']))}.\n </tweets_feed>\n"
-
-
+        background_info += "Generate what you might write when {action} to the tweet above.\n"
         input_token_count += len(enc.encode(background_info))
         input_token_count += len("You are a social media simulation assistant. You are helping a user generate tweets based on their profile. You are allowed to generate a variety of tweets with different sentiments, and tonalities.")
         
@@ -649,7 +648,8 @@ class WorldModel:
                 response = self.client.beta.chat.completions.parse(
                     model="gpt-4o-mini",                
                     messages = [
-                        {"role": "system", "content": "You are a social media simulation assistant. You are helping a user generate tweets based on their profile. You are allowed to generate a variety of tweets with different sentiments, and tonalities. Action must be the same as provided by the user. Allowed actions are 'post', 'post_url', 'retweet', 'reply'"},
+                        # {"role": "system", "content": "You are a social media simulation assistant. You are helping a user generate tweets based on their profile. You are allowed to generate a variety of tweets with different sentiments, and tonalities. Action must be the same as provided by the user. Allowed actions are 'post', 'post_url', 'retweet', 'reply'"},
+                        {"role": "system", "content": "You are simulating a human thought process based on their biography, current events, and available information. Allowed actions are 'post', 'post_url', 'retweet', 'reply'"},
                         {"role": "user", "content": background_info},
                     ],
                     max_tokens=max_tokens,
