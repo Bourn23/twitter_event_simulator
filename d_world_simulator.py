@@ -9,6 +9,8 @@ import time
 from textblob import TextBlob
 from dotenv import load_dotenv
 from advanced_social_media_agent import AdvancedSocialMediaAgent
+from datetime import datetime
+import pytz
 
 
 from threading import Lock
@@ -165,9 +167,9 @@ class WorldModel:
         self.active_client = self.client
         self.who_active_client = 'client1'
 
-        self.basic_user_properties = ['name', 'type', 'title', 'age', 'gender', 'race', 'nationality', 'bio', 'tweets']#, "top_topics", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
-        self.core_user_properties = ['name', 'type', 'title', 'leads', 'age', 'gender', 'race', 'nationality', 'bio', 'tweets']#, "top_topics", "num_mentions_per_tweet", "accounts_to_mention", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
-        self.org_user_properties = ['name', 'type', 'title', 'leads', 'age', 'gender', 'race', 'nationality', 'bio', 'tweets', "top_topics", "num_mentions_per_tweet", "accounts_to_mention", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
+        self.basic_user_properties = ['name', 'type', 'title', 'age', 'gender', 'race', 'nationality', 'bio', 'behavior', 'scenario_tweets']#, "top_topics", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
+        self.core_user_properties = ['name', 'type', 'title', 'leads', 'age', 'gender', 'race', 'nationality', 'bio', 'behavior', 'scenario_tweets']#, "top_topics", "num_mentions_per_tweet", "accounts_to_mention", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
+        self.org_user_properties = ['name', 'type', 'title', 'leads', 'age', 'gender', 'race', 'nationality', 'bio', 'behavior', 'scenario_tweets', "top_topics", "num_mentions_per_tweet", "accounts_to_mention", "retweet_quote_valence", "retweet_quote_categories", "accounts_to_retweet_quote", "top_hashtags", "percent_tweets_pos_neg_neut"]
 
     def switch_client(self):
         if self.who_active_client == 'client1':
@@ -192,24 +194,34 @@ class WorldModel:
         return nx.read_gml(network_path)
     
     def load_biographies(self, biography_path):
-        with open(biography_path, 'r', encoding='utf-8-sig') as file:
+        with open(biography_path, 'r', encoding='utf-8') as file:
             return json.load(file)
 
     def simulate_social_media_activity(self):
-        for user_type in ['org', 'core', 'basic']:
+        for user_type in ['basic']:
             graph_nodes = list(self.graph.nodes())
             shuffled_graph_nodes = random.sample(graph_nodes, len(graph_nodes))
             for user in shuffled_graph_nodes:
+                if self.users_role[user] != user_type: # Skip users that are not of the current type
+                    continue
+                # check if the time at users' nationality and convert the current time to their timezone
+                user_nationality = self.get_user_property(user, 'nationality')
+                user_time = self.convert_time_by_nationality(self.current_time, "American", user_nationality)
+                current_hour = user_time.hour
+                if current_hour <= random.uniform(6, 10) and current_hour < random.uniform(21, 24):
+                    continue
+
                 if self.users_role[user] == user_type:
-                    if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
+                    if any(action_count > 0 for action_count in
+                        self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
                         # Use the graph to fetch the most relevant tweets
                         recent_tweets = self.get_recent_tweets_from_graph(user)
-                         #print("Recent tweets fetched in simualted ", recent_tweets)
+                        # print("Recent tweets fetched in simulated ", recent_tweets)
                         action_info = self.take_action(user, recent_tweets)
                         if action_info[0]:  # Only process if there's an action
-
+                            print(user_nationality, user_time, "user is up and is taking action")
                             # calculate subjectivity and polarity from tweets
-                            self.process_action(user, (action_info[0],action_info[1]), action_info[2], action_info[3])
+                            self.process_action(user, (action_info[0], action_info[1]), action_info[2], action_info[3])
 
         # self.propagate_information() # redundant???
         self.current_time += timedelta(minutes=15)
@@ -236,7 +248,7 @@ class WorldModel:
         last_pause = time.time()
         processed_users = {}
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = []
 
             # shuffle so that it's not always the same users being processed first
@@ -293,20 +305,96 @@ class WorldModel:
     #     self.propagate_information()
     #     self.current_time += timedelta(minutes=15)
 
+    @staticmethod
+    def convert_time_by_nationality(time: datetime, from_nationality: str, to_nationality: str) -> datetime:
+        # Dictionary mapping nationalities to time zones
+        # Note: This is a simplified mapping and may not cover all cases
 
+    
+        nationality_to_timezone = {
+            'Polish': 'Europe/Warsaw',
+            'Scottish': 'Europe/London',
+            'English': 'Europe/London',
+            'Canadian': 'America/Toronto',
+            'Italian': 'Europe/Rome',
+            'Spanish': 'Europe/Madrid',
+            'German': 'Europe/Berlin',
+            'French': 'Europe/Paris',
+            'Croatian': 'Europe/Zagreb',
+            'Indian': 'Asia/Kolkata',
+            'Danish': 'Europe/Copenhagen',
+            'Chinese': 'Asia/Shanghai',
+            'Russian': 'Europe/Moscow',
+            'Mexican': 'America/Mexico_City',
+            'Pakistani': 'Asia/Karachi',
+            'Egyptian': 'Africa/Cairo',
+            'USA': 'America/New_York',
+            'UK': 'Europe/London',
+            'Japan': 'Asia/Tokyo',
+            'Australia': 'Australia/Sydney',
+            'France': 'Europe/Paris',
+            'China': 'Asia/Shanghai',
+            'Brazil': 'America/Sao_Paulo',
+            'Russia': 'Europe/Moscow',
+            'Finnish': 'Europe/Helsinki',
+            'Russia': 'Europe/Moscow',
+            'Norway': 'Europe/Oslo',
+            'International': 'UTC',
+            'European': 'Europe/Paris',
+            'Icelandic': 'Atlantic/Reykjavik',
+            'American': 'America/New_York',
+            'British': 'Europe/London',
+            'Australian': 'Australia/Sydney',
+            'Irish': 'Europe/Dublin',
+            'Norwegian': 'Europe/Oslo',
+            'Swedish': 'Europe/Stockholm',
+            None: 'UTC'
+        }
+
+        # Check if nationalities are in our dictionary
+        if from_nationality not in nationality_to_timezone:
+            raise ValueError(f"Unsupported 'from' nationality: {from_nationality}")
+        if to_nationality not in nationality_to_timezone:
+            raise ValueError(f"Unsupported 'to' nationality: {to_nationality}")
+
+        # Get the time zones
+        from_tz = pytz.timezone(nationality_to_timezone[from_nationality])
+        to_tz = pytz.timezone(nationality_to_timezone[to_nationality])
+
+        # Localize the time to the 'from' time zone
+        # If the input time is naive (no timezone info), assume it's in the 'from' timezone
+        if time.tzinfo is None:
+            time_with_tz = from_tz.localize(time)
+        else:
+            time_with_tz = time.astimezone(from_tz)
+
+        # Convert to the 'to' time zone
+        converted_time = time_with_tz.astimezone(to_tz)
+
+        return converted_time
+    
     def process_users(self, user):
         global total_input_token_count, total_output_token_count
         # print("Users being processed ", user)
         input_token_count = 0
         output_token_count = 0
+        if self.users_role[user] != 'basic':
+            return (user,"NO ACTION", "N/A", self.current_time), 0, 0
         try:
             # skip users if they are deactive
             join_time = self.get_user_property(user, 'join_time')
             leave_time = self.get_user_property(user, 'leave_time')
-
+            print("current time", self.current_time, "jointime ", join_time,  " IS it smaller? ", self.current_time < datetime.strptime(join_time, '%Y-%m-%dT%H:%M'))
             if join_time is not None or leave_time is not None:
                 if self.current_time < datetime.strptime(join_time, '%Y-%m-%dT%H:%M') or self.current_time > datetime.strptime(leave_time, '%Y-%m-%dT%H:%M'):
                     return (user,"NO ACTION - USER IS DISABLED", "N/A", self.current_time), 0, 0 # skip the user because they are not active at this time
+
+             # check if the time at users' nationality and convert the current time to their timezone
+            user_nationality = self.get_user_property(user, 'nationality')
+            user_time = self.convert_time_by_nationality(self.current_time, "American", user_nationality)
+            current_hour = user_time.hour
+            if current_hour <= random.uniform(6, 10) and current_hour < random.uniform(21, 24):
+                return (user,"NO ACTION - USER IS ASLEEP", "N/A", self.current_time), 0, 0
 
             # check if any actions left today - then take action
             if any(action_count > 0 for action_count in self.remaining_actions.get(self.current_time.strftime('%Y-%m-%d'), {}).values()):
@@ -377,11 +465,15 @@ class WorldModel:
     def process_action(self, user, action_info, user_polarity, user_subjectivity):
         action, target_post_id = action_info
         post_id = len(self.posts_graph.nodes) + 1  # Generate a unique post ID
+        print('user is taking action ', self.users_role[user], action)
+        input_token_count = 0
+        output_token_count = 0
 
         if action == 'post':
             # pass user, user_polarity, user_subjectivity to generate_post
             tweet_feed = self.get_recent_tweets_from_graph(user)
             new_post, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, tweet_history=tweet_feed)
+            print("adding post to the graph ", new_post, post_id)
             self.posts_graph.add_node(post_id, content=new_post, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.add_to_tweet_history(user, post_id)
 
@@ -403,10 +495,7 @@ class WorldModel:
         elif action == 'retweet' and target_post_id:
             target_post_data = self.posts_graph.nodes[target_post_id]
             tweet_feed = self.get_recent_tweets_from_graph(user)
-            
-            rt_content, rt_target_id, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, reaction_to_tweet=target_post_data['content'], tweet_history=tweet_feed)
-            # rt_contet is the post_id of the retweet; get the post
-            # rt_content = self.posts_graph.nodes[rt_content]['content']
+            rt_content, rt_target_id, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, reaction_to_tweet=target_post_data['content'], tweet_history=tweet_feed, screen_name=target_post_data['owner'])
             self.posts_graph.add_node(post_id, content=f"RT: {target_post_data['content']}" + rt_content, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             # self.add_to_tweet_history(user, post_id) #redundant
             # Add an edge representing the 'retweet' interaction
@@ -418,7 +507,7 @@ class WorldModel:
             target_post_data = self.posts_graph.nodes[target_post_id]
             tweet_feed = self.get_recent_tweets_from_graph(user)
             #TODO: we can later pass more than just the reply_tweet, for instance we could pass the replies made to that tweet too.
-            replied_post_generated, _, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, reaction_to_tweet=target_post_data['content'], tweet_history=tweet_feed)
+            replied_post_generated, _, input_token_count, output_token_count = self.generate_post(user, action, user_polarity, user_subjectivity, reaction_to_tweet=target_post_data['content'], tweet_history=tweet_feed, screen_name=target_post_data['owner'])
             self.posts_graph.add_node(post_id, content=f"RE: {target_post_data['content']}" + replied_post_generated, owner=user, timestamp=self.current_time, likes=0, retweets=0, replies=[])
             self.posts_graph.add_edge(post_id, target_post_id, interaction='reply', timestamp=self.current_time)
             # Update the original post with the reply reference
@@ -478,7 +567,7 @@ class WorldModel:
 
     # def take_action_with_gpt4(self, user, tweets, actions_today, subjectivity, polarity):
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=5, max=40))
-    def generate_post(self, user: dict, action: str, updated_user_polarity: int, updated_user_subjectivity: int, tweet_history: list, replying_tweet: str=None, reaction_to_tweet: str=None):
+    def generate_post(self, user: dict, action: str, updated_user_polarity: int, updated_user_subjectivity: int, tweet_history: list, screen_name: str=None, reaction_to_tweet: str=None):
         input_token_count = 0
         output_token_count = 0
         background_info = ""
@@ -493,9 +582,9 @@ class WorldModel:
                 background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
 
         background_info += f"Considering the user's information, write a tweet such that it would be relevant to their profile."
-        background_info += f"To do that, you should make shrewd note on the users profile, extract at least 4-6 key points from the user's profile and generate realistic tweets based on those points. Use those inferences to generate one key point about their tweet style."
+        background_info += f"To do that, you should make shrewd note on the users profile, a relevant key points from the user's profile and behavior and generate a realistic tweet based on those points."
         background_info += f"Please make sure the tweets are relevant to the user's profile and it is okay to be creative with the tweets, some tweets might be aggressive or sensitive (a little) and that is okay."
-        background_info += f"Once done with making those points, please generate a tweet matching the observations made concerning the following situation and user's tweet feed: "# : [<list_of_inferences_on_character>][<list_of_new_tweets_based_on_inferences>]."
+        background_info += f"Once done with making those points, please generate a tweet matching the observations made concerning the following situation and user's tweet feed: "
         background_info += """
                     The Situation::
                     In 2040, Arctic sea ice has melted significantly.
@@ -524,22 +613,24 @@ class WorldModel:
                     Norwegian and Russian governments
                     Environmental groups: INNW and EcoVanguard Solutions\n"""
 
-        background_info += f"Current time: {self.current_time}.\n"
+        user_nationality = self.get_user_property(user, 'nationality')
+        user_time = self.convert_time_by_nationality(self.current_time, "American", user_nationality)
+        background_info += f"User's current time: {user_time}.\n"
         # background_info += f"Once done with making those points, please ONLY return the new tweets in the following format: [<list_of_inferences_on_character>][<list_of_new_tweets_based_on_inferences>]."
         if updated_user_polarity > 0:
             background_info += f"The user supports the viewpoint of Heliexpress LTD with a subjectivity score of {updated_user_subjectivity}. "
             if action in ['post', 'post_url']:
-                background_info += f"User can use these hashtags: {random.sample(bad_hashtags, 3)}"
+                background_info += f"User may choose to use these hashtags: {random.sample(bad_hashtags, 3)}"
         elif updated_user_polarity < 0:
             background_info += f"The user has is not happy with what Heliexpress LTD is doing with a subjectivity score of {updated_user_subjectivity}."            
             if action in ['post', 'post_url']:
-                background_info += f"User can use these hashtags: {random.sample(good_hashtags, 3)}"
+                background_info += f"User may choose to use these hashtags: {random.sample(good_hashtags, 3)}"
         
         if len(tweet_history['user_tweets']) > 0:
             background_info += f"User's 5 most recent tweets: {tweet_history['user_tweets']}."
 
         if action in ['retweet', 'reply']:
-            background_info += f"\nYou are {action}'ing to the following tweet, make an appropriate {action} to this tweet: {reaction_to_tweet}.\n"
+            background_info += f"\nYou are {action}'ing to the following tweet, make an appropriate {action} to this tweet: username: {reaction_to_tweet} - tweet: {reaction_to_tweet}.\n"
         elif action in ['post', 'post_url']:
             background_info += f"\nUser's action is {action}\n"
             if action == 'post_url':
@@ -572,6 +663,7 @@ class WorldModel:
                 if parsed_response:
                     action_by_gpt = parsed_response.action
                     if action_by_gpt == action:
+                        print(f"Action by {self.users_role[user]} user", parsed_response, '\n', user)
                         break
                     else:
                         background_info += f"Your action must match the action provided by the user. You need to generate {action} but the generated action is {action_by_gpt}."
@@ -601,139 +693,7 @@ class WorldModel:
         elif action == 'reply':
             return parsed_response.tweet, parsed_response.reply_tweet_id, input_token_count, output_token_count
 
-    
-    # def generate_post(self, user, action, user_polarity, user_subjectivity, original_tweet=None, hashtags=None, tweet_history=None):
-    #     # Use GPT-4 to generate the next action
-    #     prompt = self.construct_prompt(user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history)
-    #     # 20% chance of choosing gpt-4o instead of gpt-4o-mini
-    #     if random.random() < 0.05:
-    #         model_name = "gpt-4o"
-    #     else:
-    #         model_name = "gpt-4o-mini"
 
-    #     if random.random() < 0.7:
-    #         self.client = self.client
-    #     else:
-    #         self.client = self.client2
-    #     try:
-    #         response = self.client.chat.completions.create(
-    #             model=model_name,                
-    #             messages = [
-    #             {"role": "system", "content": """Given the user's past behavior and intents, generate a diverse tweet that aligns with personality, interests, and user's polarity towards the given scenario and time of the event (there is an impending protest on July 1st). """},
-    #             {"role": "user", "content": prompt},
-    #             ],
-    #             max_tokens=150,
-    #             # random temeprature between 0.4 and 0.9
-    #             temperature=random.uniform(0.4, 0.9),
-    #         )
-    #         response_post_processed = {
-    #             "response": response.choices[0].message.content,
-    #         }
-    #     except Exception as e:
-    #         # switch clients
-    #         print("Switching client")
-    #         self.switch_client()
-    
-    #     list_response = json.loads(response_post_processed['response'])
-    #     print("list_response in generate_post", list_response)
-    #     if action == 'post' or action == 'post_url': # action is to post or post_url
-    #         selected_tweet = ' '.join([lr for lr in list_response])
-    #     elif action == 'retweet': # action can be retweet/like or reply
-    #         selected_tweet = int(list_response[1].replace(" ", ""))
-    #     elif action == 'reply':
-    #         replied_tweet_id = int(list_response[0].replace(" ", ""))
-    #         new_reply = list_response[1]
-    #         selected_tweet = (replied_tweet_id, new_reply)
-
-    #     return selected_tweet
-    
-    # def process_gpt4_response(self, response, actions_today):
-        
-    #     action = None
-    #     selected_tweet = None
-    #     # Parse the GPT-4 response to extract the recommended action
-    #     gpt4_response = response['response'] 
-    #     # whole response is a string that looks like a list: ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"] let's convert it to a list
-    #     gpt4_response = gpt4_response.replace("[", "").replace("]", "").replace('"', "").split(",") # ["post", "Excited to kick off this new journey! Looking forward to sharing updates and connecting with everyone. Let's make great things happen! #NewBeginnings"]
-
-        
-    #     # check what the length of the response is
-    #     if len(gpt4_response) == 2: # its either post, post_url, retweet, or like
-    #         gpt4_action = gpt4_response[0]
-    #         if gpt4_action == 'retweet':
-    #             selected_tweet = 'RT:' + gpt4_response[1]
-    #         elif gpt4_action == 'post' or gpt4_action == 'post_url':
-    #             selected_tweet = gpt4_response[1]
-    #         elif gpt4_action == 'like':
-    #             selected_tweet = gpt4_response[1]
-    #     if len(gpt4_response) == 3:
-    #         gpt4_action = gpt4_response[0]
-    #         if gpt4_action == 'reply':
-    #             selected_tweet = gpt4_response[0]
-    #             selected_tweet = 'RE:' + gpt4_response[1] + gpt4_response[2]
-    #      #print("parsed gpt4 response in process_gpt4_response")
-    #     # Ensure the action is within the available actions
-    #     if 'post_url' in gpt4_action and actions_today.get('post_url', 0) > 0:
-    #         action = 'post_url'
-    #         actions_today['post_url'] -= 1
-    #         actions_today['post'] -= 1
-    #     elif 'post' in gpt4_action and actions_today.get('post', 0) > 0:
-    #         action = 'post'
-    #         actions_today['post'] -= 1
-    #         actions_today['post_url'] -= 1 # Assume that a tweet with a URL is also a tweet
-    #     elif 'retweet' in gpt4_action and actions_today.get('retweet', 0) > 0:
-    #         action = 'retweet'
-    #         actions_today['retweet'] -= 1
-    #     elif 'reply' in gpt4_action and actions_today.get('reply', 0) > 0:
-    #         action = 'reply'
-    #         actions_today['reply'] -= 1
-    #     elif 'like' in gpt4_action and actions_today.get('like', 0) > 0:
-    #         action = 'like'
-    #         actions_today['like'] -= 1
-
-    #     # # Select a tweet for retweet, reply, or like if needed
-    #     # if action in ['retweet', 'reply', 'like']:
-    #     #     selected_tweet = random.choice(tweets) if tweets else None
-        
-    #     return action, selected_tweet
-
-    # def construct_prompt(self, user, action, user_polarity, user_subjectivity, original_tweet, hashtags, tweet_history):
-    #     # based on user role, feed the background info. for each user it is saved in self.basic_user_properties, self.core_user_properties, self.org_user_properties
-    #     # this will be the background info paragraph
-    #     background_info = ""
-    #     if self.users_role[user] == 'org':
-    #         for prop in self.org_user_properties:
-    #             background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
-    #     elif self.users_role[user] == 'core':
-    #         for prop in self.core_user_properties:
-    #             background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
-    #     elif self.users_role[user] == 'basic':
-    #         for prop in self.basic_user_properties:
-    #             background_info += f"{prop}: {self.get_user_property(user, prop)}.\n"
-        
-    #     prompt = (
-    #         f"character role: {self.users_role[user]}.\n" # update this to include user bio, historical tweet, etc.
-    #         f"character background info: {background_info}.\n"
-    #         f"character's sentiment: user's polarity (if + then anti-env and if - then pro-env): {user_polarity}, user tweets' subjectivity: {user_subjectivity}\n"
-    #         f"Current time: {self.current_time}.\n"
-    #         f"character's action: {action}.\n"            
-    #     )
-
-    #     # add to prompt if the action is retweet, reply, or like
-    #     if float(self.get_user_property(user, 'polarity')) > 0: # the user is a supporter of this negative cause
-    #         prompt += f"Choose one or two hashtags (anti-environment): {[hashtag for hashtag in bad_hashtags]}.\n"
-    #     else:
-    #         prompt += f"Choose one or two hashtags (pro-environment): {[hashtag for hashtag in good_hashtags]}.\n"
-
-    #     if action in ['retweet', 'reply']:
-    #         prompt += f"\nSelected tweet for {action}: {original_tweet}.\n"
-    #     if action in ['post', 'post_url', 'retweet', 'reply']:
-    #         prompt += f"\nUser's tweet feed in (tweet_id, tweet) format:\n <tweets> \n {[(tweet_id, tweet_data['content']) for tweet_id, tweet_data in tweet_history]}.\n </tweets>\n"
-
-    #     prompt += f"Considering the user's preferences, bio, time of day, and available actions, "
-    #     prompt += f"Choose the most reasonable action the user should take next (post, post_url, retweet, reply)?"
-    #     return prompt
-    
     def take_action_for_basic_user(self, user, tweets, actions_today):
          #print("Taking action for basic user")
         # Define a base action probability for basic users
@@ -758,7 +718,7 @@ class WorldModel:
         if random.random() < action_probability:
             user_context = {'time_of_day': 'morning' if 6 <= self.current_time.hour < 12 else 'evening'}
             action = self.select_best_action(user, actions_today, user_context)
-            # action = 'like' #change this
+            # action = 'retweet' #change this
         else:
             action = None
 
@@ -790,7 +750,7 @@ class WorldModel:
         if random.random() < action_probability:
             user_context = {'time_of_day': 'morning' if 6 <= self.current_time.hour < 12 else 'evening'}
             action = self.select_best_action(user, actions_today, user_context)
-            # action = 'like' #change this
+            # action = 'reply' #change this
         else:
             action = None
 
@@ -815,7 +775,6 @@ class WorldModel:
         # load from user json file
         # Define weights for each action
         weights_factors = self.get_user_property(user, 'action_weight')
-
         weights = {
             'like': weights_factors['like_weight'],
             'reply':  weights_factors['reply_weight'],
@@ -826,12 +785,12 @@ class WorldModel:
 
         # Adjust weights based on context
         if user_context.get('time_of_day') == 'morning':
-            weights['tweet_weight'] *= 1.2
-            weights['tweet_url_weight'] *= 1.1
+            weights['post'] *= 1.2
+            weights['post_url'] *= 1.1
         elif user_context.get('time_of_day') == 'evening':
-            weights['retweet_weight'] *= 1.1
-            weights['like_weight'] *= 1.3
-            weights['reply_weight'] *= 1.2
+            weights['retweet'] *= 1.1
+            weights['like'] *= 1.3
+            weights['reply'] *= 1.2
 
         # Calculate the scores
         action_scores = {action: count * weights[action] for action, count in actions_today.items() if count > 0}
@@ -840,7 +799,6 @@ class WorldModel:
 
         # Convert scores to probabilities
         total_score = sum(action_scores.values())
-        total_score = 0
         probabilities = {action: score / total_score for action, score in action_scores.items()}
 
         # Choose an action based on probabilities
@@ -1087,7 +1045,7 @@ class WorldModel:
         convert_datetime_to_string(self.posts_graph)
         
         # Save the graph to a GML file
-        nx.write_gml(self.posts_graph, f'posts_graph_{self.current_time}-network438.gml')
+        nx.write_gml(self.posts_graph, f'posts_graph_{self.current_time}-network340.gml')
 
 # Simulation Runner
 def run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets):
@@ -1096,28 +1054,29 @@ def run_simulation(network_path, core_biography_path, basic_biography_path, org_
     # Measure the time taken for the simulation
     start_time = time.time()
     while world.current_time <= world.end_date:
-        world.simulate_social_media_activity()
-        # world.simulate_social_media_activity_parallel2()
+        # world.simulate_social_media_activity()
+        world.simulate_social_media_activity_parallel2()
         
         if world.current_time.minute == 0:  # Log every hour
             print(f"Simulation time: {world.current_time}, time elapsed: {time.time() - start_time:.2f} seconds.")
-            world.save_tweets(f'simulation_results_{world.current_time}-parallel2-sep2-network438.json')
+            world.save_tweets(f'simulation_results_{world.current_time}-parallel2-sep3-network13-ordinary-only.json')
 
 
 
+    time.sleep(20) # wait until all data is fetched
     print("Execution time:", time.time() - start_time)
-    return world.save_tweets('simulation_results.json')
+    return world.save_tweets('simulation_results_tiny_13.json')
 
 
 if __name__ == "__main__":
     # Run the simulation
-    network_path = 'social_network_med_438.gml'
-    core_biography_path = 'sep2.1-core_final.json'
-    basic_biography_path = 'sep2.1-ordinary_final.json'
-    org_biography_path = 'sep2.1-org_final.json'
+    network_path = 'social_network_tiny_13.gml'
+    core_biography_path = 'sep2.1-core_final-username_added.json'
+    basic_biography_path = 'sep2.1-ordinary_final-username_added_fixedtime.json'
+    org_biography_path = 'sep2.1-org_final-username_added.json'
 
-    start_date = datetime(2040, 5, 30, 14)
-    end_date = datetime(2040, 5, 30, 15)
+    start_date = datetime(2040, 5, 31, 1)
+    end_date = datetime(2040, 5, 31, 2)
     # end_date = datetime(2040, 6, 4)
     final_state = run_simulation(network_path, core_biography_path, basic_biography_path, org_biography_path, start_date, end_date, predetermined_tweets)
     print("Simulation completed.")
