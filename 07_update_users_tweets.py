@@ -1,3 +1,5 @@
+# the user tweets seemed to generic, for that we will update the user tweets to be more relevant and realistic.
+
 import openai
 import os
 import json

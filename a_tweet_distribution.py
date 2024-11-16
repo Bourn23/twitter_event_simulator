@@ -1,4 +1,5 @@
-# ## V2 Adjusted probabilities ##
+# # Calculates the acitivty pattern statistics of users during an event (e.g., protest)
+# # ## V2 Adjusted probabilities ##
 # # probabilities are adopted from the following paper (with some modification to match the number of required tweets): doi:10.1371/journal.pone.0165387
 import numpy as np
 from datetime import datetime, timedelta

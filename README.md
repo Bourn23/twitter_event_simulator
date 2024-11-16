@@ -37,6 +37,13 @@
 - we can improve network modeling from users. especially, we can have connected users be identified through their tweet histories. or even make users that have the same concerns and tweet about the same concerns and group them together.
 
 # TODOs
+## New TODOs
+[] LLM use cases: 
+- create a user _ personality + tweet history
+- generate tweet _ personality + tweet history + world event + tweet feed
+
+
+## OLD TODOs
 [x] fix the users names
 [x] connect the worldmodel to LLM to either make decisions / or just tweets and retweets
 [x] the LLM should use the org and core users extra information [such as valence, their BEND, and positions] when simulating them
@@ -53,7 +60,6 @@
 --> there are times where a user is active and then deactive. during protest we want most of our users to be active. especially we want them to organize/coordinate the protest information.
 
 
-ideas for tweet generation via LLM:
+ideas for tweet generation via LLM: (it would be interesting to see if it makes a difference whether the user tweet is generated via subjective or objective view by the LLM)
 1. it's an oracle/ social media expert simulation.
 2. it is the user itself.
-3. ??
