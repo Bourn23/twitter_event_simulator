@@ -9,7 +9,7 @@ import typing_extensions as typing
 class Person(typing.TypedDict):
     aesop_id: str
     name: str
-    type: str  # e.g., "influencer" or "normal person"
+    user_type: str  # e.g., "influencer" or "normal person"
     Job: str
     age: int
     gender: str  # e.g., "Male", "Female", "Non-binary"
@@ -45,7 +45,7 @@ for i in range(150):
     print(selected_users)
 
     # Step 3: Configure the generative AI model
-    genai.configure(api_key="AIzaSyBRq7w5ClMn_k3adeZ7jEDw6A8N15s-j04")
+    genai.configure(api_key="---")
     with open("instruction.txt", "r", encoding='utf-8') as file:
         input_text = file.read()
     with open("example_char.txt", "r", encoding='utf-8') as file:

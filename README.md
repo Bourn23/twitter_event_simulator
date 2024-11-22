@@ -39,8 +39,9 @@
 # TODOs
 ## New TODOs
 [] LLM use cases: 
-- create a user _ personality + tweet history
+- create a user _ personality + tweet history [longer tweets + it would be interesting to see how multimedia information adds to it as well]
 - generate tweet _ personality + tweet history + world event + tweet feed
+
 
 
 ## OLD TODOs
