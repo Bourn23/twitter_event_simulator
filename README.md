@@ -64,3 +64,6 @@
 ideas for tweet generation via LLM: (it would be interesting to see if it makes a difference whether the user tweet is generated via subjective or objective view by the LLM)
 1. it's an oracle/ social media expert simulation.
 2. it is the user itself.
+
+# Thankful to these repos and links
+* https://github.com/theTejMahal/twitter/tree/main
